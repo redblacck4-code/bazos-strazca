@@ -133,7 +133,16 @@ CONSOLE_VALUES = {
 CONSOLE_JUNK = re.compile(
     r"portal|\bvr2?\b|psvr|headset|slúchad|sluchad|volant|stojan|nabíj|nabij|\bdok\b|dock|skin|cover|"
     r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam)", re.I)
-GAMES = re.compile(r"\bhr[ay]\b|\bhier\b|\bgames?\b|\bcd\b", re.I)
+GAMES = re.compile(r"\bhr(a|y|u|e|ou|ami)\b|\bhier\b|\bgames?\b|\bcd\b|\bdlc\b|\bkód\b|\bkod\b", re.I)
+CONSOLE_NAMES = {v[0] for v in CONSOLE_VALUES.values()}
+GAME_DESC = re.compile(r"^\W*(predám|predam|ponúkam|ponukam)?\s*(hru|hry|hra)\b|\bhr(u|a)\s+(na|pre)\s+(ps|playstation|switch|nintendo)", re.I)
+
+
+def too_cheap_console(name, value, price, text=""):
+    """Konzola za zlomok ceny = takmer vždy hra/príslušenstvo, nie konzola."""
+    if name not in CONSOLE_NAMES:
+        return False
+    return price < 0.4 * value or bool(GAME_DESC.search(text or ""))
 BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5"]
@@ -273,6 +282,8 @@ def evaluate(item, text):
     if not est:
         return None
     name, value, notes = est
+    if too_cheap_console(name, value, item["price"], text):
+        return None
     repair = 0
     for rx, cost, label in DAMAGE:
         if rx.search(full):
@@ -334,6 +345,8 @@ def main():
                 continue
             area, travel = reg
             quick = estimate(it["title"], it["snippet"])
+            if quick and too_cheap_console(quick[0], quick[1], it["price"], it["snippet"]):
+                continue
             if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1]):
                 continue                      # ani bez opráv to nevychádza
             text = detail_text(it["url"]) or it["snippet"]
@@ -350,7 +363,8 @@ def main():
                    f"Bežná cena ~{ev['value']} € · odhad zisku <b>~{ev['profit']} €</b>\n"
                    f"📍 {esc(it['loc'])}\n"
                    + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
-                   + f"📝 {esc(text[:250])}\n{it['url']}")
+                   + f"📝 {esc(text[:140])}{'…' if len(text) > 140 else ''}\n"
+                   + f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
             send_telegram(msg)
             alerts += 1
         time.sleep(1.5)
