@@ -34,4 +34,7 @@ jobs:
           git config user.name "strazca-bot"
           git config user.email "strazca-bot@users.noreply.github.com"
           git add seen.json
-          git diff --cached --quiet || git commit -m "update seen.json" && git push
+          git diff --cached --quiet && exit 0
+          git commit -m "update seen.json"
+          git pull --rebase -X theirs origin main || true
+          git push || echo "Push sa nepodaril – nevadí, skúsi sa pri ďalšom behu"
