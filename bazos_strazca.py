@@ -17,13 +17,31 @@ from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------- nastavenia
 PSC = "97101"          # stred hľadania (Prievidza)
-RADIUS_KM = 40         # okruh na Bazoši
-# povolené PSČ (prvé 3 číslice) ≈ do 30–40 min autom od PD:
-# Prievidza/Bojnice/Handlová/Nováky (971, 972), Partizánske (958), Bánovce (957),
-# Žiar n. Hronom (965), Žarnovica (966)
-ALLOWED_PSC = ("971", "972", "958", "957", "965", "966")
+RADIUS_KM = 90         # okruh na Bazoši (vzdušnou čiarou) – presný výber robia PSČ nižšie
+# Povolené PSČ (prvé 3 číslice) -> (oblasť, odhad nákladov na cestu tam a späť v €).
+# Náklady na cestu sa odpočítajú zo zisku. Východ Slovenska tu zámerne nie je.
+REGIONS = {
+    # do ~30 min – bez nákladov
+    "971": ("Prievidza a okolie", 0), "972": ("Prievidza a okolie", 0),
+    "958": ("Partizánske", 0), "957": ("Bánovce n. B.", 0),
+    # ~40–50 min
+    "965": ("Žiar n. Hronom", 10), "966": ("Žarnovica", 10), "967": ("Kremnica", 15),
+    "955": ("Topoľčany", 15), "956": ("Topoľčany – okolie", 15),
+    "038": ("Turčianske Teplice", 15), "039": ("Turčianske Teplice", 15),
+    # ~1 h
+    "949": ("Nitra", 25), "950": ("Nitra – okolie", 25), "951": ("Nitra – okolie", 25),
+    "953": ("Zlaté Moravce", 20),
+    "911": ("Trenčín", 25), "912": ("Trenčín – okolie", 25), "913": ("Trenčín – okolie", 25),
+    "914": ("Trenč. Teplice / Nemšová", 25),
+    "018": ("Dubnica / Nová Dubnica", 25), "019": ("Ilava", 25),
+    "974": ("Banská Bystrica", 25), "975": ("Banská Bystrica – okolie", 25), "976": ("BB – okolie", 25),
+    "960": ("Zvolen", 25), "961": ("Zvolen – okolie", 25), "962": ("Zvolen – okolie", 25),
+    "036": ("Martin", 20),
+    # ~1 h 10 – hraničné, kľudne zmaž
+    "010": ("Žilina", 30), "011": ("Žilina", 30), "017": ("Považská Bystrica", 30), "020": ("Púchov", 30),
+}
 SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
-PAGES = 3                    # koľko strán (po 20) prejsť v každej sekcii
+PAGES = 4                    # koľko strán (po 20) prejsť v každej sekcii
 MIN_PROFIT = int(os.getenv("MIN_PROFIT", "60"))
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
@@ -77,11 +95,6 @@ OTHER = [
     (r"ipad\s*pro.*\bm[124]\b", "iPad Pro (M)", 550),
     (r"ipad\s*air.*\bm[123]\b", "iPad Air (M)", 380),
     (r"ps5\s*pro|playstation\s*5\s*pro", "PS5 Pro", 600),
-    (r"ps5|playstation\s*5", "PlayStation 5", 380),
-    (r"steam\s*deck\s*oled", "Steam Deck OLED", 450),
-    (r"steam\s*deck", "Steam Deck LCD", 300),
-    (r"switch\s*2\b", "Nintendo Switch 2", 380),
-    (r"switch\s*oled", "Nintendo Switch OLED", 230),
     (r"rtx\s*4090", "RTX 4090", 1500), (r"rtx\s*4080", "RTX 4080", 800),
     (r"rtx\s*4070\s*ti", "RTX 4070 Ti", 550), (r"rtx\s*4070", "RTX 4070", 420),
     (r"rtx\s*3080", "RTX 3080", 350),
@@ -91,7 +104,7 @@ OTHER = [
 HARD_EXCLUDE = re.compile(
     r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
     r"face\s*id\s*(nefung|nejde|nefunk|nie)|nefunguje\s*face|nezapne|nezapína|doska|"
-    r"vodou|vytopen|navlhn|ohnut|prevodom\s*vopred|krabica\s*od|iba\s*krabic|obal\b|kryt\b|puzdro", re.I)
+    r"vodou|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic|obal\b|kryt\b|puzdro", re.I)
 # Odpočty za opravy (€)
 DAMAGE = [
     (re.compile(r"(displej|obrazovk|lcd)[^.]{0,40}(rozbit|prask|pukn|poškod|čiar|nefunk)|"
@@ -99,6 +112,67 @@ DAMAGE = [
     (re.compile(r"(zadn\w* skl|chrbt)[^.]{0,30}(rozbit|prask|pukn)|(rozbit|prask|pukn)\w*[^.]{0,25}zadn", re.I), 50, "zadné sklo"),
     (re.compile(r"neorigin|menen\w* displej|vymenen\w* displej|neznám\w* diel", re.I), 40, "neoriginálny diel"),
 ]
+# ------------------------------------------------ konzoly a ovládače (€)
+# Rozpoznávajú sa iba podľa NADPISU (v popise býva "+ 2 ovládače", "+ hry" a pod.)
+CONSOLE_VALUES = {
+    "dualsense_edge": ("DualSense Edge", 150),
+    "dualsense": ("Ovládač DualSense", 45),
+    "ps5_pro": ("PS5 Pro", 650),
+    "ps5_slim_digital": ("PS5 Slim Digital", 400),
+    "ps5_slim": ("PS5 Slim s mechanikou", 450),
+    "ps5_digital": ("PS5 Digital", 350),
+    "ps5": ("PS5 s mechanikou", 400),
+    "deck_oled_1tb": ("Steam Deck OLED 1TB", 560),
+    "deck_oled": ("Steam Deck OLED 512GB", 480),
+    "deck_lcd_512": ("Steam Deck LCD 512GB", 340),
+    "deck_lcd": ("Steam Deck LCD", 300),
+    "switch2": ("Nintendo Switch 2", 400),
+    "switch_oled": ("Nintendo Switch OLED", 240),
+}
+# Inzeráty, ktoré iba spomínajú konzolu (hry, príslušenstvo, PS Portal…)
+CONSOLE_JUNK = re.compile(
+    r"portal|\bvr2?\b|psvr|headset|slúchad|sluchad|volant|stojan|nabíj|nabij|\bdok\b|dock|skin|cover|"
+    r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam)", re.I)
+GAMES = re.compile(r"\bhr[ay]\b|\bhier\b|\bgames?\b|\bcd\b", re.I)
+BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
+# Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
+CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5"]
+
+
+def console_estimate(title):
+    t = title.lower()
+    if CONSOLE_JUNK.search(t) or (GAMES.search(t) and not BUNDLE.search(t)):
+        return None
+    is_pad = re.search(r"dualsense|ovl[aá]d[aá][cč]|gamepad|joystick", t)
+    is_console = re.search(r"\+|konzol|ps5\s*(slim|pro|digital|disc)|playstation\s*5\s*(slim|pro|digital|disc)|"
+                           r"\b(825|1)\s?(gb|tb)\b", t)
+    if is_pad and not is_console:
+        key = "dualsense_edge" if "edge" in t else ("dualsense" if re.search(r"dualsense|ps5|playstation", t) else None)
+        return CONSOLE_VALUES[key] if key else None
+    if re.search(r"ps\s?5|playstation\s*5", t):
+        if re.search(r"\bpro\b", t):
+            return CONSOLE_VALUES["ps5_pro"]
+        digital = re.search(r"digit", t)
+        if "slim" in t:
+            return CONSOLE_VALUES["ps5_slim_digital" if digital else "ps5_slim"]
+        return CONSOLE_VALUES["ps5_digital" if digital else "ps5"]
+    if "steam deck" in t or "steamdeck" in t:
+        if "oled" in t:
+            return CONSOLE_VALUES["deck_oled_1tb" if re.search(r"\b1\s?tb", t) else "deck_oled"]
+        return CONSOLE_VALUES["deck_lcd_512" if "512" in t else "deck_lcd"]
+    if "switch" in t and re.search(r"nintendo|switch\s*(oled|2)\b", t):
+        if re.search(r"switch\s*2\b", t):
+            return CONSOLE_VALUES["switch2"]
+        if "oled" in t:
+            return CONSOLE_VALUES["switch_oled"]
+    return None
+
+
+def required_profit(value):
+    """Lacné veci (ovládače) by 60 € nikdy nedosiahli – pre ne stačí ~30 % z ceny."""
+    return min(MIN_PROFIT, max(15, round(value * 0.3)))
+
+
 MODEL_RE = re.compile(r"iph?one\s*(1[2-7])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
 GB_RE = re.compile(r"\b(64|128|256|512)\s?gb|\b(1)\s?tb", re.I)
 BAT_RE = re.compile(r"(\d{2,3})\s?%")
@@ -152,15 +226,19 @@ def detail_text(url):
     return re.sub(r"\s+", " ", d.get_text(" ", strip=True)) if d else ""
 
 
-def psc_ok(loc):
+def region(loc):
+    """Vráti (oblasť, náklady na cestu) alebo None, ak je PSČ mimo sledovaných oblastí."""
     m = re.search(r"(\d{3})\s?\d{2}\s*$", loc)
-    return bool(m) and m.group(1) in ALLOWED_PSC
+    return REGIONS.get(m.group(1)) if m else None
 
 
 def estimate(title, text):
     """Vráti (názov, bežná cena, poznámky) alebo None."""
-    t = f"{title} {text}".lower()
     notes = []
+    c = console_estimate(title)
+    if c:
+        return c[0], c[1], notes
+    t = f"{title} {text}".lower()
     m = MODEL_RE.search(t)
     if m:
         if m.group(1):
@@ -231,38 +309,51 @@ def main():
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
     first_run = not state
     alerts = 0
+    # zoznam stránok na prejdenie: najnovšie inzeráty v sekciách + cielené hľadania konzol
+    pages = []
     for sec in SECTIONS:
-        base = f"https://{sec}.bazos.sk"
         for page in range(PAGES):
             off = f"{page * 20}/" if page else ""
-            html = fetch(f"{base}/{off}?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=")
-            if not html:
-                print(f"[!] {sec} strana {page} sa nenačítala", file=sys.stderr)
-                break
-            for it in parse_list(html, base):
-                prev = state.get(it["id"])
-                if prev is not None and it["price"] >= prev:
-                    continue                      # už videné a nezlacnelo
-                state[it["id"]] = it["price"]
-                if not psc_ok(it["loc"]) or it["price"] <= 0:
-                    continue
-                quick = estimate(it["title"], it["snippet"])
-                if not quick or quick[1] * SELL_FACTOR - it["price"] < MIN_PROFIT:
-                    continue                      # ani bez opráv to nevychádza
-                text = detail_text(it["url"]) or it["snippet"]
-                time.sleep(1)
-                ev = evaluate(it, text)
-                if not ev or ev["profit"] < MIN_PROFIT:
-                    continue
-                drop = f" (zlacnené z {prev} €)" if prev else ""
-                msg = (f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
-                       f"Bežná cena ~{ev['value']} € · odhad zisku <b>~{ev['profit']} €</b>\n"
-                       f"📍 {esc(it['loc'])}\n"
-                       + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
-                       + f"📝 {esc(text[:250])}\n{it['url']}")
-                send_telegram(msg)
-                alerts += 1
-            time.sleep(1.5)
+            pages.append((sec, f"?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=", off))
+    for q in CONSOLE_SEARCHES:
+        pages.append(("pc", f"?hledat={requests.utils.quote(q)}&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=15&cenado=", ""))
+
+    for sec, query, off in pages:
+        base = f"https://{sec}.bazos.sk"
+        html = fetch(f"{base}/{off}{query}")
+        if not html:
+            print(f"[!] {sec} {off or 'strana 0'} {query[:40]} sa nenačítala", file=sys.stderr)
+            continue
+        for it in parse_list(html, base):
+            prev = state.get(it["id"])
+            if prev is not None and it["price"] >= prev:
+                continue                      # už videné a nezlacnelo
+            state[it["id"]] = it["price"]
+            reg = region(it["loc"])
+            if not reg or it["price"] <= 0:
+                continue
+            area, travel = reg
+            quick = estimate(it["title"], it["snippet"])
+            if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1]):
+                continue                      # ani bez opráv to nevychádza
+            text = detail_text(it["url"]) or it["snippet"]
+            time.sleep(1)
+            ev = evaluate(it, text)
+            if ev:
+                ev["profit"] -= travel
+                if travel:
+                    ev["notes"].append(f"cesta: {area} (−{travel} €)")
+            if not ev or ev["profit"] < required_profit(ev["value"]):
+                continue
+            drop = f" (zlacnené z {prev} €)" if prev else ""
+            msg = (f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
+                   f"Bežná cena ~{ev['value']} € · odhad zisku <b>~{ev['profit']} €</b>\n"
+                   f"📍 {esc(it['loc'])}\n"
+                   + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
+                   + f"📝 {esc(text[:250])}\n{it['url']}")
+            send_telegram(msg)
+            alerts += 1
+        time.sleep(1.5)
     # drž stav menší – nechaj posledných 5000 ID
     if len(state) > 5000:
         state = dict(list(state.items())[-5000:])
