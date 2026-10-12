@@ -68,6 +68,28 @@ IPHONE = {
 }
 # Ostatné: (regex na nadpis+popis, názov, cena). Prvá zhoda vyhráva – špecifickejšie hore.
 OTHER = [
+    # --- Mac mini / iMac (iba Apple Silicon M1–M4) ---
+    (r"mac\s*mini.*\bm4\s*pro", "Mac mini M4 Pro", 950),
+    (r"mac\s*mini.*\bm4\b", "Mac mini M4", 500),
+    (r"mac\s*mini.*\bm2\s*pro", "Mac mini M2 Pro", 650),
+    (r"mac\s*mini.*\bm2\b", "Mac mini M2", 400),
+    (r"mac\s*mini.*\bm1\b", "Mac mini M1", 300),
+    (r"\bimac\b.*\bm4\b", "iMac 24 M4", 1000),
+    (r"\bimac\b.*\bm3\b", "iMac 24 M3", 850),
+    (r"\bimac\b.*\bm1\b", "iMac 24 M1", 550),
+    # --- grafické karty RTX 50 a AMD RX ---
+    (r"rtx\s*5090", "RTX 5090", 2000), (r"rtx\s*5080", "RTX 5080", 900),
+    (r"rtx\s*5070\s*ti", "RTX 5070 Ti", 650), (r"rtx\s*5070", "RTX 5070", 450),
+    (r"rx\s*9070\s*xt", "RX 9070 XT", 580), (r"rx\s*9070", "RX 9070", 500),
+    (r"rx\s*7900\s*xtx", "RX 7900 XTX", 750), (r"rx\s*7900\s*xt\b", "RX 7900 XT", 550),
+    (r"rx\s*7900\s*gre", "RX 7900 GRE", 450), (r"rx\s*7800\s*xt", "RX 7800 XT", 380),
+    # --- drony DJI ---
+    (r"(?=.*\bdji\b).*air\s*3s", "DJI Air 3S", 850),
+    (r"(?=.*\bdji\b).*air\s*3\b", "DJI Air 3", 700),
+    (r"(?=.*\bdji\b).*mini\s*4\s*pro", "DJI Mini 4 Pro", 600),
+    (r"(?=.*\bdji\b).*mini\s*4\s*k", "DJI Mini 4K", 200),
+    (r"(?=.*\bdji\b).*mini\s*3\s*pro", "DJI Mini 3 Pro", 400),
+    (r"(?=.*\bdji\b).*mini\s*3\b", "DJI Mini 3", 280),
     (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 850),
     (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 720),
     (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 560),
@@ -146,6 +168,26 @@ def too_cheap_console(name, value, price, text=""):
 BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5"]
+# Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
+EXTRA_SEARCHES = [("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
+                  ("pc", "rx 7800"), ("foto", "dji"), ("pc", "dji")]
+# Príslušenstvo – v NADPISE znamená, že to nie je samotné zariadenie
+ACCESSORY = re.compile(
+    # nadpis ZAČÍNA príslušenstvom ("Batéria DJI Mini 3", "Stojan na Mac mini")
+    r"^\W*(predám|predam|nová|nový|nove|original\w*)?\s*(batéri|bateri|vrtul|nabíja|nabija|filtr|filter|držiak|drziak|stojan|"
+    r"hub\b|adaptér|adapter|kábel|kabel|klávesnic|klavesnic|myš|mys\b|chladič|chladic|kryt|obal|puzdr|taška|taska|ovládač|ovladac|rc\b)"
+    # príslušenstvo "na/pre" zariadenie, celé počítače/notebooky, výmeny a dopyty
+    r"|\b(na|pre|for|do)\s+(dji|mac|imac|rtx|rx|grafik)|\bpc\b|počítač|pocitac|zostav|notebook|laptop|"
+    r"vymením\s+za|hľadám|hladam", re.I)
+
+
+def is_accessory_or_bundle(name, title, price, value):
+    """Pre Mac mini/iMac, grafiky a drony: vyradiť príslušenstvo, celé PC/notebooky a podozrivo lacné kusy."""
+    if not any(k in name for k in ("Mac mini", "iMac", "RTX 50", "RX ", "DJI")):
+        return False
+    if ACCESSORY.search(title):
+        return True
+    return price < 0.35 * value
 
 
 def console_estimate(title):
@@ -284,6 +326,8 @@ def evaluate(item, text):
     name, value, notes = est
     if too_cheap_console(name, value, item["price"], text):
         return None
+    if is_accessory_or_bundle(name, item["title"], item["price"], value):
+        return None
     repair = 0
     for rx, cost, label in DAMAGE:
         if rx.search(full):
@@ -326,6 +370,8 @@ def main():
         for page in range(PAGES):
             off = f"{page * 20}/" if page else ""
             pages.append((sec, f"?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=", off))
+    for sec, q in EXTRA_SEARCHES:
+        pages.append((sec, f"?hledat={requests.utils.quote(q)}&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=", ""))
     for q in CONSOLE_SEARCHES:
         pages.append(("pc", f"?hledat={requests.utils.quote(q)}&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=15&cenado=", ""))
 
@@ -345,7 +391,8 @@ def main():
                 continue
             area, travel = reg
             quick = estimate(it["title"], it["snippet"])
-            if quick and too_cheap_console(quick[0], quick[1], it["price"], it["snippet"]):
+            if quick and (too_cheap_console(quick[0], quick[1], it["price"], it["snippet"])
+                          or is_accessory_or_bundle(quick[0], it["title"], it["price"], quick[1])):
                 continue
             if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1]):
                 continue                      # ani bez opráv to nevychádza
