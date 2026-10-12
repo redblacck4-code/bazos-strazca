@@ -345,14 +345,82 @@ def evaluate(item, text):
     return {"name": name, "value": value, "repair": repair, "profit": profit, "notes": notes}
 
 
-def send_telegram(msg):
+SIGNATURE = os.getenv("SELLER_NAME", "Andrej")
+
+
+def offer_price(price):
+    """Ponuka ~10 % pod cenou, zaokrúhlená na 5 €."""
+    return max(5, int(round(price * 0.9 / 5.0)) * 5)
+
+
+def seller_questions(name, text):
+    """Otázky presne podľa typu zariadenia; vynechá to, čo už je v popise."""
+    t = text.lower()
+    n = name.lower()
+    has_bat = bool(re.search(r"(\d{2,3})\s?%", t))
+    q = []
+    if n.startswith("iphone") or "ipad" in n:
+        if not has_bat:
+            q.append("aký je stav batérie v %")
+        if "icloud" not in t:
+            q.append("či je odhlásený z iCloudu")
+        if n.startswith("iphone") and not re.search(r"face\s*id", t):
+            q.append("či funguje Face ID")
+        q.append("či nebol opravovaný (displej, batéria)")
+    elif any(k in n for k in ("macbook", "mac mini", "imac")):
+        if "macbook" in n and not re.search(r"cykl", t):
+            q.append("koľko cyklov má batéria")
+        q.append("či je odhlásené Apple ID a nie je na ňom firemný profil (MDM)")
+    elif any(k in n for k in ("galaxy", "pixel", "xiaomi")):
+        if not has_bat:
+            q.append("v akom stave je batéria")
+        q.append("či je odhlásený z Google účtu")
+        q.append("či nebol opravovaný")
+    elif "watch" in n:
+        if not has_bat:
+            q.append("aký je stav batérie")
+        q.append("či sú odpojené od účtu")
+    elif "airpods" in n:
+        q.append("či sú originál a máte k nim doklad o kúpe")
+    elif any(k in n for k in ("ps5", "steam deck", "switch", "dualsense")):
+        if "dualsense" in n:
+            q.append("či nemá drift páčok")
+        else:
+            q.append("či konzola nie je zabanovaná")
+            q.append("či ovládače nemajú drift")
+    elif "rtx" in n or n.startswith("rx "):
+        q.append("či sa na nej ťažilo")
+        q.append("či máte doklad o kúpe / platí ešte záruka")
+    elif "dji" in n:
+        q.append("či mal dron niekedy pád")
+        q.append("či je odpojený od DJI účtu")
+        q.append("koľko má batérií a cyklov")
+    else:
+        q.append("či je všetko plne funkčné")
+    return q
+
+
+def seller_message(item, ev, text):
+    qs = seller_questions(ev["name"], text)
+    if len(qs) > 1:
+        q_txt = " Chcel by som sa spýtať, " + ", ".join(qs[:-1]) + " a " + qs[-1] + "."
+    elif qs:
+        q_txt = " Chcel by som sa spýtať, " + qs[0] + "."
+    else:
+        q_txt = ""
+    return (f"Dobrý deň, mám záujem o {ev['name']} z Bazoša. Je inzerát ešte aktuálny?{q_txt} "
+            f"Viem prísť osobne a zaplatiť v hotovosti. "
+            f"Za {offer_price(item['price'])} € by som to zobral hneď, dalo by sa? Ďakujem, {SIGNATURE}")
+
+
+def send_telegram(msg, preview=True):
     token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         print(msg + "\n---")
         return
     requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                   data={"chat_id": chat, "text": msg, "parse_mode": "HTML",
-                        "disable_web_page_preview": "false"}, timeout=20)
+                        "disable_web_page_preview": "false" if preview else "true"}, timeout=20)
 
 
 def esc(s):
@@ -407,12 +475,12 @@ def main():
                 continue
             drop = f" (zlacnené z {prev} €)" if prev else ""
             msg = (f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
-                   f"Bežná cena ~{ev['value']} € · odhad zisku <b>~{ev['profit']} €</b>\n"
-                   f"📍 {esc(it['loc'])}\n"
+                   f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €) · 📍 {esc(it['loc'])}\n"
                    + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
-                   + f"📝 {esc(text[:140])}{'…' if len(text) > 140 else ''}\n"
                    + f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
             send_telegram(msg)
+            # správa pre predajcu – ťuknutím na text sa skopíruje
+            send_telegram(f"<code>{esc(seller_message(it, ev, text))}</code>", preview=False)
             alerts += 1
         time.sleep(1.5)
     # drž stav menší – nechaj posledných 5000 ID
