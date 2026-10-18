@@ -790,6 +790,15 @@ VINTED_BAD = re.compile(
     r"uszkodz|na\s+części|na\s+czesci|pękni|pekni|pęknię|rozbit|zbit|nie\s+działa|nie\s+dziala|zablokow|blokad|"
     r"icloud\s*(lock|blok|zablok)|simlock|poškoden|poskoden|prasknut|nefunk|na\s+diely|na\s+díly|"
     r"vadn|ohnut|wymian\w*\s+(ekran|wyświetl)|neorigin|nieorygin|zamiennik|replika|kopia|podróbk", re.I)
+# Znaky podvodu – platba alebo kontakt mimo Vinted (SK/CZ/PL/EN)
+VINTED_SCAM = re.compile(
+    r"\bblik\b|50\s*/\s*50|polovic\w*\s+(vopred|teraz|dopredu)|połow\w*|zálohu|zaloh|zadatek|zaliczk|"
+    r"przelew|prevod\w*\s+na\s+účet|prevodom|bankov\w*\s+(prevod|účet)|revolut|paypal|western\s*union|"
+    r"inpost|paczkomat|packet\w*\s+mimo|mimo\s+vinted|poza\s+vinted|outside\s+vinted|"
+    r"whats\s*app|telegram|signal|viber|\+?\d{3}[\s-]?\d{3}[\s-]?\d{3}|@gmail|@seznam|@azet|@wp\.pl|@o2\.pl|"
+    r"kontaktuj\w*\s+(ma|mě|mnie)|napíšte\s+(mi\s+)?(na|súkrom)|pisz\s+(na|prywat)|priv\b|\bpv\b|"
+    r"nie\s+przez\s+kup|nie\s+kupuj|neklikajte\s+kúpiť|nekupujte\s+cez|cez\s+kúpiť\s+teraz\s+nie|"
+    r"zarezerwuj|rezervuj\w*\s+(si\s+)?pre\s+mňa|dla\s+ciebie", re.I)
 VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Dostateczny)", re.I)
 
 
@@ -822,7 +831,7 @@ def process_vinted(state):
             if quick[0].startswith(("iPhone", "Galaxy", "Pixel", "Xiaomi")) and "Model:" not in full:
                 continue
             total = price + VINTED_SHIP
-            if price < 0.4 * quick[1] or total > VINTED_MAX_RATIO * quick[1]:
+            if price < 0.55 * quick[1] or total > VINTED_MAX_RATIO * quick[1]:
                 continue
             if quick[1] * SELL_FACTOR - total < VINTED_MIN_PROFIT:
                 continue
@@ -830,6 +839,8 @@ def process_vinted(state):
             text = _vinted_desc(url) or title
             if VINTED_BAD.search(text):
                 continue                       # na Vinted iba nepoškodené kusy (batéria je OK)
+            if VINTED_SCAM.search(f"{title} {text}"):
+                continue                       # platba/kontakt mimo Vinted = typický podvod
             item = {"title": title, "price": round(total), "loc": "Vinted", "url": url, "snippet": ""}
             if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
                 continue
