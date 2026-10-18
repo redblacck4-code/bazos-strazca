@@ -723,6 +723,12 @@ def _vinted_get(path):
 
 
 _A_RE = re.compile(r"<a\b[^>]*>", re.I)
+# Príslušenstvo na Vinted (SK/CZ/PL/EN) – nadpis tým začína alebo je "na/do/for <zariadenie>"
+VINTED_ACC = re.compile(
+    r"^\W*(nov[ýéá]\s+|nowe?\s+|orygina\w*\s+|origin\w*\s+)?(etui|obudow|case|pokrowie|obal|kryt|pouzdr|puzdr|"
+    r"szk[łl]o|sklo|sklíčk|folia|fólia|ładowark|ladowark|nabíj|nabij|kabel|kábel|cover|charger|plecki|"
+    r"ochran|ochron|stojan|uchwyt|držiak|drziak|pasek|remien|náramok|klawiatur|klávesnic)"
+    r"|\b(etui|obudowa|case|pokrowiec|obal|kryt)\s+(na|do|pre|for)\b", re.I)
 
 
 def _vinted_search_html(q, max_price):
@@ -799,7 +805,12 @@ def process_vinted(state):
             if model_attr and model_attr.group(1).lower() not in title.lower():
                 title = f"{title} {model_attr.group(1)}"
             quick = estimate(title, title)
-            if not quick:
+            if not quick or VINTED_ACC.search(title):
+                continue
+            # telefóny majú na Vinted v atribútoch "Model: …" – kryty a príslušenstvo nie
+            if quick[0].startswith(("iPhone", "Galaxy", "Pixel", "Xiaomi")) and "Model:" not in x.get("full", "Model:"):
+                continue
+            if price < 0.4 * quick[1]:        # zlomok ceny = príslušenstvo alebo podvod
                 continue
             total = price + VINTED_SHIP
             if quick[1] * SELL_FACTOR - total < required_profit(quick[1]):
