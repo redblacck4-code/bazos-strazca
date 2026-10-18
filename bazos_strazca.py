@@ -9,7 +9,7 @@ Premenné prostredia:
   TELEGRAM_CHAT_ID  – tvoje chat ID (napr. cez @userinfobot)
   MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 60 €)
 """
-import json, os, re, sys, time
+import json, os, random, re, sys, time
 from pathlib import Path
 
 import requests
@@ -47,7 +47,7 @@ REGIONS = {
     "010": ("Žilina", 30), "011": ("Žilina", 30), "017": ("Považská Bystrica", 30), "020": ("Púchov", 30),
 }
 SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
-PAGES = 5                    # koľko strán (po 20) prejsť v každej sekcii (celé SK)
+PAGES = 3                    # koľko strán (po 20) prejsť v každej sekcii (celé SK, každé 2–3 min stačí)
 MIN_PROFIT = int(os.getenv("MIN_PROFIT", "60"))
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
@@ -266,15 +266,32 @@ BAT_RE = re.compile(r"(\d{2,3})\s?%")
 
 
 # ------------------------------------------------------------------ helpers
+_blocked_until = 0.0
+COOLDOWN = 600            # pri zablokovaní Bazošom pauza 10 minút
+_http = requests.Session()
+
+
 def fetch(url):
-    for attempt in range(3):
+    """Šetrné sťahovanie: krátka pauza pred každou požiadavkou, pri zablokovaní (403/429/503) dlhá pauza."""
+    global _blocked_until
+    if time.time() < _blocked_until:
+        return None
+    for attempt in range(2):
+        time.sleep(1.2 + random.random())
         try:
-            r = requests.get(url, headers=UA, timeout=20)
-            if r.status_code == 200:
-                return r.text
-        except requests.RequestException:
-            pass
-        time.sleep(3 + attempt * 5)
+            r = _http.get(url, headers=UA, timeout=20)
+        except requests.RequestException as e:
+            print(f"[!] sieť: {e.__class__.__name__}", file=sys.stderr)
+            time.sleep(5)
+            continue
+        if r.status_code == 200:
+            return r.text
+        if r.status_code in (403, 429, 503):
+            _blocked_until = time.time() + COOLDOWN
+            print(f"[!] Bazoš brzdí (HTTP {r.status_code}) – pauza {COOLDOWN // 60} min", file=sys.stderr)
+            return None
+        print(f"[!] HTTP {r.status_code}: {url[:60]}", file=sys.stderr)
+        time.sleep(3)
     return None
 
 
@@ -493,7 +510,7 @@ CAR_MIN_PROFIT = int(os.getenv("CAR_MIN_PROFIT", "500"))
 CAR_MAX_KM = 280_000
 CAR_PREP_COST = 300        # umytie/čistenie, drobnosti, prepis, STK/EK – paušál
 CAR_SELL_FACTOR = 0.93     # reálne predáš ~7 % pod mediánom inzerátov
-CAR_PAGES = 5
+CAR_PAGES = 3
 # Modely, ktoré sa na Slovensku dobre a rýchlo predávajú: (regex, dotaz na porovnanie, názov)
 CAR_MODELS = [
     (r"(š|s)koda\s+octavia|\boctavia\b", "octavia", "Škoda Octavia"),
@@ -600,7 +617,8 @@ def process_cars(state):
         off = f"{page * 20}/" if page else ""
         html = fetch(f"{base}/{off}?hledat=&{LOC}cenaod={CAR_MIN_PRICE}&cenado={CAR_MAX_PRICE}")
         if not html:
-            print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
+            if time.time() >= _blocked_until:
+                print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
             break
         for it in parse_list(html, base):
             prev = state.get(it["id"])
@@ -653,7 +671,13 @@ def process_cars(state):
 
 
 # --------------------------------------------------------------------- main
+_cycle = 0
+
+
 def main():
+    global _cycle
+    _cycle += 1
+    targeted = (_cycle % 5 == 1)     # cielené hľadania len pri každom 5. behu (1., 6., 11. …)
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
     first_run = not state
     alerts = 0
@@ -663,15 +687,17 @@ def main():
         for page in range(PAGES):
             off = f"{page * 20}/" if page else ""
             pages.append((sec, f"?hledat=&{LOC}cenaod=50&cenado=", off))
-    for sec, q in EXTRA_SEARCHES:
+    for sec, q in (EXTRA_SEARCHES if targeted else []):
         pages.append((sec, f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=50&cenado=", ""))
-    for q in CONSOLE_SEARCHES:
+    for q in (CONSOLE_SEARCHES if targeted else []):
         pages.append(("pc", f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=15&cenado=", ""))
 
     for sec, query, off in pages:
         base = f"https://{sec}.bazos.sk"
         html = fetch(f"{base}/{off}{query}")
         if not html:
+            if time.time() < _blocked_until:
+                break                         # Bazoš brzdí – zvyšok behu preskoč
             print(f"[!] {sec} {off or 'strana 0'} {query[:40]} sa nenačítala", file=sys.stderr)
             continue
         for it in parse_list(html, base):
@@ -719,7 +745,8 @@ def main():
     if len(state) > 15000:
         state = dict(list(state.items())[-15000:])
     STATE_FILE.write_text(json.dumps(state))
-    print(f"Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}")
+    blocked = " · Bazoš brzdí, pauza" if time.time() < _blocked_until else ""
+    print(f"{time.strftime('%d.%m. %H:%M')} Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}{blocked}")
 
 
 def loop(interval):
