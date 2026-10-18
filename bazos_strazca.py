@@ -9,7 +9,7 @@ Premenné prostredia:
   TELEGRAM_CHAT_ID  – tvoje chat ID (napr. cez @userinfobot)
   MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 60 €)
 """
-import json, os, random, re, sys, time
+import html as _html, json, os, random, re, sys, time
 from pathlib import Path
 
 import requests
@@ -675,15 +675,12 @@ def process_cars(state):
 # =====================================================================
 # Vinted sa kontroluje zriedkavo (predvolene ~každých 20 min), aby nás neblokoval.
 VINTED_ON = os.getenv("VINTED_ON", "1") == "1"
-VINTED_EVERY = int(os.getenv("VINTED_EVERY", "10"))   # každý N-tý beh (pri intervale 120 s = ~20 min)
+VINTED_EVERY = int(os.getenv("VINTED_EVERY", "15"))   # každý N-tý beh (pri intervale 120 s = ~30 min)
 VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/CZ/PL) €
 VINTED_BASE = "https://www.vinted.sk"
 VINTED_QUERIES = [
-    ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700), ("iphone 12 pro", 260),
-    ("macbook air m1", 450), ("macbook air m2", 600), ("macbook pro m1", 650), ("macbook pro m3", 1100),
-    ("playstation 5", 420), ("steam deck", 450), ("nintendo switch oled", 230), ("nintendo switch 2", 380),
-    ("apple watch", 350), ("garmin fenix", 550), ("garmin forerunner", 400),
-    ("dji mini", 650), ("dji avata", 600), ("airpods pro", 130), ("ipad air", 400), ("galaxy s24", 600),
+    ("iphone 12 pro", 260), ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700),
+    ("macbook air", 650), ("macbook pro", 1100), ("playstation 5", 420),
 ]
 _vinted_session = requests.Session()
 _vinted_blocked_until = 0.0
@@ -725,6 +722,41 @@ def _vinted_get(path):
     return None
 
 
+_A_RE = re.compile(r"<a\b[^>]*>", re.I)
+
+
+def _vinted_search_html(q, max_price):
+    """Katalóg Vinted ako HTML (rovnako ako v prehliadači). Vráti zoznam položiek ako z API."""
+    global _vinted_blocked_until
+    if time.time() < _vinted_blocked_until:
+        return None
+    time.sleep(2 + random.random() * 2)
+    url = f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
+    r = _vinted_session.get(url, headers=UA, timeout=30)
+    if r.status_code in (403, 429, 503):
+        _vinted_blocked_until = time.time() + 3600
+        print(f"[!] Vinted brzdí (HTTP {r.status_code}) – pauza 60 min", file=sys.stderr)
+        return None
+    if r.status_code != 200:
+        print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
+        return None
+    items, seen = [], set()
+    for tag in _A_RE.findall(r.text):
+        h = re.search(r'href="([^"]*/items/(\d+)[^"]*)"', tag)
+        t = re.search(r'title="([^"]+)"', tag)
+        if not h or not t or h.group(2) in seen:
+            continue
+        title_attr = _html.unescape(t.group(1))
+        prices = re.findall(r"(\d+(?:[.,]\d+)?)\s?€", title_attr)
+        if not prices:
+            continue
+        seen.add(h.group(2))
+        href = h.group(1) if h.group(1).startswith("http") else VINTED_BASE + h.group(1)
+        items.append({"id": h.group(2), "title": title_attr.split(", Značka")[0].split(", Stav")[0],
+                      "full": title_attr, "price": prices[0], "total_item_price": prices[-1], "url": href.split("?")[0]})
+    return {"items": items}
+
+
 def _money(v):
     if isinstance(v, dict):
         v = v.get("amount")
@@ -750,8 +782,7 @@ def process_vinted(state):
         return 0
     alerts = 0
     for q, max_price in VINTED_QUERIES:
-        data = _vinted_get(f"/api/v2/catalog/items?search_text={requests.utils.quote(q)}"
-                           f"&order=newest_first&per_page=40&price_to={max_price}")
+        data = _vinted_search_html(q, max_price)
         if data is None:
             if time.time() < _vinted_blocked_until:
                 break
@@ -764,6 +795,9 @@ def process_vinted(state):
                 continue
             state[key] = price
             title = x.get("title") or ""
+            model_attr = re.search(r"Model:\s*([^,]+)", x.get("full", ""))
+            if model_attr and model_attr.group(1).lower() not in title.lower():
+                title = f"{title} {model_attr.group(1)}"
             quick = estimate(title, title)
             if not quick:
                 continue
