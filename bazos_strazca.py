@@ -427,6 +427,178 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# =====================================================================
+#                              AUTÁ
+# =====================================================================
+# Pri autách nemá zmysel pevná cenovka – cena závisí od roku a km.
+# Bot preto pre každý kandidát nájde podobné autá (rovnaký model, rok ±1)
+# na celom Bazoši a porovná cenu s ich mediánom.
+CARS_ON = os.getenv("CARS_ON", "1") == "1"
+CAR_MIN_PRICE = int(os.getenv("CAR_MIN_PRICE", "1000"))
+CAR_MAX_PRICE = int(os.getenv("CAR_MAX_PRICE", "8000"))
+CAR_MIN_PROFIT = int(os.getenv("CAR_MIN_PROFIT", "500"))
+CAR_MAX_KM = 280_000
+CAR_PREP_COST = 300        # umytie/čistenie, drobnosti, prepis, STK/EK – paušál
+CAR_SELL_FACTOR = 0.93     # reálne predáš ~7 % pod mediánom inzerátov
+CAR_PAGES = 4
+# Modely, ktoré sa na Slovensku dobre a rýchlo predávajú: (regex, dotaz na porovnanie, názov)
+CAR_MODELS = [
+    (r"(š|s)koda\s+octavia|\boctavia\b", "octavia", "Škoda Octavia"),
+    (r"(š|s)koda\s+fabia|\bfabia\b", "fabia", "Škoda Fabia"),
+    (r"(š|s)koda\s+superb|\bsuperb\b", "superb", "Škoda Superb"),
+    (r"(š|s)koda\s+rapid|\brapid\b", "skoda rapid", "Škoda Rapid"),
+    (r"(š|s)koda\s+yeti|\byeti\b", "skoda yeti", "Škoda Yeti"),
+    (r"\b(vw|volkswagen)\s+golf|\bgolf\b", "golf", "VW Golf"),
+    (r"\b(vw|volkswagen)\s+passat|\bpassat\b", "passat", "VW Passat"),
+    (r"\b(vw|volkswagen)\s+polo\b", "vw polo", "VW Polo"),
+    (r"toyota\s+yaris|\byaris\b", "yaris", "Toyota Yaris"),
+    (r"toyota\s+auris|\bauris\b", "auris", "Toyota Auris"),
+    (r"toyota\s+corolla|\bcorolla\b", "corolla", "Toyota Corolla"),
+    (r"toyota\s+rav\s?4|\brav\s?4\b", "rav4", "Toyota RAV4"),
+    (r"hyundai\s+i30|\bi30\b", "hyundai i30", "Hyundai i30"),
+    (r"hyundai\s+i20|\bi20\b", "hyundai i20", "Hyundai i20"),
+    (r"hyundai\s+(ix35|tucson)|\bix35\b|\btucson\b", "tucson", "Hyundai Tucson/ix35"),
+    (r"kia\s+c'?ee'?d|\bc'?ee'?d\b", "kia ceed", "Kia Ceed"),
+    (r"kia\s+sportage|\bsportage\b", "sportage", "Kia Sportage"),
+    (r"ford\s+focus|\bfocus\b", "ford focus", "Ford Focus"),
+    (r"dacia\s+duster|\bduster\b", "duster", "Dacia Duster"),
+    (r"dacia\s+sandero|\bsandero\b", "sandero", "Dacia Sandero"),
+    (r"suzuki\s+(vitara|sx4|swift)|\b(vitara|sx4)\b", "suzuki", "Suzuki Vitara/SX4/Swift"),
+    (r"honda\s+(civic|jazz|cr-?v)|\b(civic|jazz)\b", "honda", "Honda Civic/Jazz/CR-V"),
+    (r"mazda\s*(3|6|cx-?5)\b", "mazda", "Mazda 3/6/CX-5"),
+]
+CAR_BAD = re.compile(
+    r"havarovan|havári|havari|búran|buran|na\s+diely|na\s+náhradné|nepojazd|nejazdi|bez\s+(stk|ek|tp|špz|spz)|"
+    r"motor\s+(klepe|dymí|dymi|zadret|nejde|na\s+opravu)|prevodovk\w*\s+(nefung|na\s+opravu|vadn)|"
+    r"leasing|odstúpim|odstupim|prenájom|prenajom|požičovň|kúpim|kupim|výkup|vykup|"
+    r"vymením\s+za|vymenim\s+za|iba\s+výmena|zálohu|zalohu|dovoz\s+na\s+objednávku|bez\s+dokladov", re.I)
+YEAR_RE = re.compile(r"\b(199\d|20[0-2]\d)\b")
+KM_RE = re.compile(r"(\d{2,3})[\s.]?(\d{3})\s?km|(\d{2,3})\s?(tis\.?|tisíc|k)\s?km", re.I)
+_comp_cache = {}
+
+
+def car_model(text):
+    t = text.lower()
+    for rx, q, name in CAR_MODELS:
+        if re.search(rx, t):
+            return q, name
+    return None
+
+
+def car_year(text):
+    ys = [int(y) for y in YEAR_RE.findall(text) if 1998 <= int(y) <= time.gmtime().tm_year]
+    return ys[0] if ys else None
+
+
+def car_km(text):
+    m = KM_RE.search(text)
+    if not m:
+        return None
+    if m.group(1):
+        return int(m.group(1) + m.group(2))
+    return int(m.group(3)) * 1000
+
+
+def car_comps(query, year, own_id):
+    """Ceny podobných áut (rok ±1) z celého Slovenska; medián a počet."""
+    key = (query, year)
+    if key not in _comp_cache:
+        prices = []
+        for off in ("", "20/", "40/"):
+            html = fetch(f"https://auto.bazos.sk/{off}?hledat={requests.utils.quote(query)}&cenaod=500&cenado=60000")
+            time.sleep(1)
+            if not html:
+                break
+            for c in parse_list(html, "https://auto.bazos.sk"):
+                txt = f"{c['title']} {c['snippet']}"
+                y = car_year(txt)
+                if c["id"] == own_id or not y or abs(y - year) > 1 or CAR_BAD.search(txt) or c["price"] < 500:
+                    continue
+                prices.append(c["price"])
+        prices.sort()
+        _comp_cache[key] = (prices[len(prices) // 2] if len(prices) >= 5 else None, len(prices))
+    return _comp_cache[key]
+
+
+def car_seller_message(it, name, year, km, text):
+    t = text.lower()
+    q = []
+    if not re.search(r"servis", t):
+        q.append("či má servisnú históriu")
+    if not re.search(r"majiteľ|majitel", t):
+        q.append("koľký ste majiteľ")
+    if not re.search(r"\bstk\b|\bek\b", t):
+        q.append("do kedy má STK a EK")
+    q.append("či nebolo havarované a nemá koróziu")
+    qtxt = (" Chcel by som sa spýtať, " + ", ".join(q[:-1]) + " a " + q[-1] + ".") if len(q) > 1 \
+        else (" Chcel by som sa spýtať, " + q[0] + ".")
+    offer = max(100, int(round(it["price"] * 0.9 / 50.0)) * 50)
+    return (f"Dobrý deň, mám záujem o {name}{' ' + str(year) if year else ''} z Bazoša. Je inzerát ešte aktuálny?{qtxt} "
+            f"Mohli by ste mi poslať VIN, aby som si overil históriu a km? Viem prísť osobne na obhliadku a skúšobnú jazdu. "
+            f"Pri dohode by som za {offer} € kupoval hneď. Ďakujem, {SIGNATURE}")
+
+
+def process_cars(state):
+    if not CARS_ON:
+        return 0
+    alerts = 0
+    base = "https://auto.bazos.sk"
+    for page in range(CAR_PAGES):
+        off = f"{page * 20}/" if page else ""
+        html = fetch(f"{base}/{off}?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod={CAR_MIN_PRICE}&cenado={CAR_MAX_PRICE}")
+        if not html:
+            print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
+            break
+        for it in parse_list(html, base):
+            prev = state.get(it["id"])
+            if prev is not None and it["price"] >= prev:
+                continue
+            state[it["id"]] = it["price"]
+            reg = region(it["loc"])
+            if not reg or not (CAR_MIN_PRICE <= it["price"] <= CAR_MAX_PRICE):
+                continue
+            area, travel = reg
+            head = f"{it['title']} {it['snippet']}"
+            mdl = car_model(it["title"]) or car_model(head)
+            if not mdl or CAR_BAD.search(head):
+                continue
+            text = detail_text(it["url"]) or it["snippet"]
+            time.sleep(1)
+            full = f"{it['title']} {text}"
+            if CAR_BAD.search(full):
+                continue
+            year = car_year(it["title"]) or car_year(full)
+            if not year:
+                continue
+            km = car_km(full)
+            if km and km > CAR_MAX_KM:
+                continue
+            median, n = car_comps(mdl[0], year, it["id"])
+            if not median or it["price"] > 0.85 * median:
+                continue
+            profit = round(median * CAR_SELL_FACTOR - it["price"] - CAR_PREP_COST - travel)
+            if profit < CAR_MIN_PROFIT:
+                continue
+            notes = [f"porovnané s {n} inzerátmi ({year}±1)", f"príprava −{CAR_PREP_COST} €"]
+            if travel:
+                notes.append(f"cesta: {area} (−{travel} €)")
+            if not km:
+                notes.append("km neuvedené")
+            if it["price"] < 0.55 * median:
+                notes.append("⚠️ podozrivo lacné – over VIN, nikdy neplať zálohu vopred")
+            drop = f" (zlacnené z {prev} €)" if prev else ""
+            km_txt = (", " + f"{km:,}".replace(",", " ") + " km") if km else ""
+            msg = (f"🚗 <b>{esc(mdl[1])} {year}{km_txt}</b> – <b>{it['price']} €</b>{drop}\n"
+                   f"Zisk ~<b>{profit} €</b> (podobné ~{median} €) · 📍 {esc(it['loc'])}\n"
+                   f"ℹ️ {esc('; '.join(notes))}\n"
+                   f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
+            send_telegram(msg)
+            send_telegram(f"<code>{esc(car_seller_message(it, mdl[1], year, km, text))}</code>", preview=False)
+            alerts += 1
+        time.sleep(1.5)
+    return alerts
+
+
 # --------------------------------------------------------------------- main
 def main():
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
@@ -483,12 +655,32 @@ def main():
             send_telegram(f"<code>{esc(seller_message(it, ev, text))}</code>", preview=False)
             alerts += 1
         time.sleep(1.5)
-    # drž stav menší – nechaj posledných 5000 ID
-    if len(state) > 5000:
-        state = dict(list(state.items())[-5000:])
+    alerts += process_cars(state)
+    # drž stav menší – nechaj posledných 15000 ID
+    if len(state) > 15000:
+        state = dict(list(state.items())[-15000:])
     STATE_FILE.write_text(json.dumps(state))
     print(f"Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}")
 
 
+def loop(interval):
+    """Nepretržitý režim pre server/VPS/starý mobil: prechádza Bazoš každých `interval` sekúnd."""
+    print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
+    last_cache_clear = time.time()
+    while True:
+        start = time.time()
+        try:
+            main()
+        except Exception as e:                      # nech jedna chyba nezastaví strážcu
+            print(f"[!] chyba v behu: {e}", file=sys.stderr)
+        if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
+            _comp_cache.clear()
+            last_cache_clear = time.time()
+        time.sleep(max(10, interval - (time.time() - start)))
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--loop":
+        loop(int(sys.argv[2]) if len(sys.argv) > 2 else 120)
+    else:
+        main()
