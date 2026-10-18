@@ -16,8 +16,14 @@ import requests
 from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------- nastavenia
-PSC = "97101"          # stred hľadania (Prievidza)
-RADIUS_KM = 90         # okruh na Bazoši (vzdušnou čiarou) – presný výber robia PSČ nižšie
+PSC = "97101"          # domov (Prievidza)
+RADIUS_KM = 90         # (nepoužíva sa – hľadá sa po celom SK a filtruje podľa PSČ)
+LOC = "hlokalita=&humkreis=&"   # celé Slovensko; výber oblastí robí funkcia region()
+# Mimo domácej zóny (REGIONS):
+BA_COST = int(os.getenv("BA_COST", "15"))        # elektronika z BA kraja – kúpia známi a pošlú (€)
+POST_COST = int(os.getenv("POST_COST", "10"))    # elektronika zo zvyšku západu/stredu – poštou/Packetou (€)
+CAR_BA_COST = 40       # auto z BA kraja – cesta vlakom tam, autom späť (€)
+CAR_FAR_COST = 45      # auto zo zvyšku západu/stredu (€)
 # Povolené PSČ (prvé 3 číslice) -> (oblasť, odhad nákladov na cestu tam a späť v €).
 # Náklady na cestu sa odpočítajú zo zisku. Východ Slovenska tu zámerne nie je.
 REGIONS = {
@@ -41,7 +47,7 @@ REGIONS = {
     "010": ("Žilina", 30), "011": ("Žilina", 30), "017": ("Považská Bystrica", 30), "020": ("Púchov", 30),
 }
 SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
-PAGES = 4                    # koľko strán (po 20) prejsť v každej sekcii
+PAGES = 5                    # koľko strán (po 20) prejsť v každej sekcii (celé SK)
 MIN_PROFIT = int(os.getenv("MIN_PROFIT", "60"))
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
@@ -84,6 +90,14 @@ OTHER = [
     (r"rx\s*7900\s*xtx", "RX 7900 XTX", 750), (r"rx\s*7900\s*xt\b", "RX 7900 XT", 550),
     (r"rx\s*7900\s*gre", "RX 7900 GRE", 450), (r"rx\s*7800\s*xt", "RX 7800 XT", 380),
     # --- drony DJI ---
+    (r"(?=.*\bdji\b).*avata\s*2", "DJI Avata 2", 650),
+    (r"(?=.*\bdji\b).*avata", "DJI Avata", 450),
+    (r"(?=.*\bdji\b).*mavic\s*3\s*pro", "DJI Mavic 3 Pro", 1300),
+    (r"(?=.*\bdji\b).*mavic\s*3", "DJI Mavic 3 / Classic", 900),
+    (r"(?=.*\bdji\b).*air\s*2s", "DJI Air 2S", 450),
+    (r"(?=.*\bdji\b).*mini\s*5\s*pro", "DJI Mini 5 Pro", 750),
+    (r"(?=.*\bdji\b).*mini\s*(2|se)\b", "DJI Mini 2 / SE", 170),
+    (r"(?=.*\bdji\b).*\bneo\b", "DJI Neo", 140),
     (r"(?=.*\bdji\b).*air\s*3s", "DJI Air 3S", 850),
     (r"(?=.*\bdji\b).*air\s*3\b", "DJI Air 3", 700),
     (r"(?=.*\bdji\b).*mini\s*4\s*pro", "DJI Mini 4 Pro", 600),
@@ -96,11 +110,16 @@ OTHER = [
     (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 420),
     (r"macbook\s*pro.*\bm1\s*(pro|max)\b", "MacBook Pro M1 Pro/Max", 950),
     (r"macbook\s*pro.*\bm[234]\s*(pro|max)\b", "MacBook Pro M2–M4 Pro/Max", 1300),
+    (r"macbook\s*pro.*\bm4\b(?!\s*(pro|max))", "MacBook Pro 14 M4", 1250),
+    (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 1000),
     (r"macbook\s*pro.*\bm2\b", "MacBook Pro 13 M2", 700),
     (r"macbook\s*pro.*\bm1\b", "MacBook Pro 13 M1", 580),
     (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 800),
     (r"galaxy\s*s24\s*ultra|\bs24\s*ultra", "Galaxy S24 Ultra", 600),
     (r"galaxy\s*s23\s*ultra|\bs23\s*ultra", "Galaxy S23 Ultra", 400),
+    (r"\bs25\s*(\+|plus)", "Galaxy S25+", 600), (r"\bs25\s*fe\b", "Galaxy S25 FE", 420), (r"(galaxy\s*)?\bs25\b", "Galaxy S25", 520),
+    (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 380),
+    (r"\bs23\s*(\+|plus)", "Galaxy S23+", 330), (r"\bs23\s*fe\b", "Galaxy S23 FE", 220), (r"(galaxy\s*)?\bs23\b", "Galaxy S23", 260),
     (r"z\s*fold\s*7|fold\s*7", "Galaxy Z Fold 7", 900),
     (r"z\s*fold\s*6|fold\s*6", "Galaxy Z Fold 6", 600),
     (r"z\s*fold\s*5|fold\s*5", "Galaxy Z Fold 5", 450),
@@ -113,6 +132,21 @@ OTHER = [
     (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 650),
     (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 300),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?10\b", "Apple Watch Series 10", 250),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?9\b", "Apple Watch Series 9", 190),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 150),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*se\b", "Apple Watch SE", 110),
+    # --- Garmin ---
+    (r"f[eē]nix\s*8", "Garmin Fenix 8", 650),
+    (r"f[eē]nix\s*7\s*(x\s*)?pro", "Garmin Fenix 7 Pro", 450),
+    (r"f[eē]nix\s*7\s*x", "Garmin Fenix 7X", 400),
+    (r"f[eē]nix\s*7", "Garmin Fenix 7", 350),
+    (r"epix\s*pro", "Garmin Epix Pro", 550), (r"\bepix\b", "Garmin Epix 2", 380),
+    (r"forerunner\s*970", "Garmin Forerunner 970", 550), (r"forerunner\s*965", "Garmin Forerunner 965", 380),
+    (r"forerunner\s*955", "Garmin Forerunner 955", 280), (r"forerunner\s*(265|570)", "Garmin Forerunner 265/570", 260),
+    (r"forerunner\s*255", "Garmin Forerunner 255", 180),
+    (r"venu\s*(3|x1)", "Garmin Venu 3/X1", 260), (r"instinct\s*(2x|3)", "Garmin Instinct 2X/3", 220),
     (r"airpods\s*pro\s*(2|3|ii)", "AirPods Pro 2/3", 120),
     (r"ipad\s*pro.*\bm[124]\b", "iPad Pro (M)", 550),
     (r"ipad\s*air.*\bm[123]\b", "iPad Air (M)", 380),
@@ -169,21 +203,23 @@ BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5"]
 # Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
-EXTRA_SEARCHES = [("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
+EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
                   ("pc", "rx 7800"), ("foto", "dji"), ("pc", "dji")]
 # Príslušenstvo – v NADPISE znamená, že to nie je samotné zariadenie
 ACCESSORY = re.compile(
     # nadpis ZAČÍNA príslušenstvom ("Batéria DJI Mini 3", "Stojan na Mac mini")
     r"^\W*(predám|predam|nová|nový|nove|original\w*)?\s*(batéri|bateri|vrtul|nabíja|nabija|filtr|filter|držiak|drziak|stojan|"
-    r"hub\b|adaptér|adapter|kábel|kabel|klávesnic|klavesnic|myš|mys\b|chladič|chladic|kryt|obal|puzdr|taška|taska|ovládač|ovladac|rc\b)"
+    r"hub\b|adaptér|adapter|kábel|kabel|klávesnic|klavesnic|myš|mys\b|chladič|chladic|kryt|obal|puzdr|taška|taska|ovládač|ovladac|rc\b|"
+    r"remien|náramok|naramok|sklo|sklíčk|fóli|foli|ochrann|goggles|okuliar|motion\s*controller|rc\s*motion)"
     # príslušenstvo "na/pre" zariadenie, celé počítače/notebooky, výmeny a dopyty
-    r"|\b(na|pre|for|do)\s+(dji|mac|imac|rtx|rx|grafik)|\bpc\b|počítač|pocitac|zostav|notebook|laptop|"
+    r"|\b(na|pre|for|do)\s+(dji|mac|imac|rtx|rx|grafik|apple|watch|garmin|galaxy|samsung|s2\d|fenix|forerunner|avata|mavic)|\bpc\b|počítač|pocitac|zostav|notebook|laptop|"
     r"vymením\s+za|hľadám|hladam", re.I)
 
 
 def is_accessory_or_bundle(name, title, price, value):
     """Pre Mac mini/iMac, grafiky a drony: vyradiť príslušenstvo, celé PC/notebooky a podozrivo lacné kusy."""
-    if not any(k in name for k in ("Mac mini", "iMac", "RTX 50", "RX ", "DJI")):
+    if not any(k in name for k in ("Mac mini", "iMac", "RTX 50", "RX ", "DJI", "Apple Watch Series", "Apple Watch SE",
+                                   "Garmin", "Galaxy S2", "MacBook Pro 14")):
         return False
     if ACCESSORY.search(title):
         return True
@@ -278,9 +314,21 @@ def detail_text(url):
 
 
 def region(loc):
-    """Vráti (oblasť, náklady na cestu) alebo None, ak je PSČ mimo sledovaných oblastí."""
+    """Vráti (oblasť, náklady elektronika, náklady auto, režim) alebo None (východ SK / neznáme PSČ).
+    režim: 'osobne' = domáca zóna, 'znami' = Bratislavský kraj (kúpia známi), 'posta' = zvyšok západu a stredu."""
     m = re.search(r"(\d{3})\s?\d{2}\s*$", loc)
-    return REGIONS.get(m.group(1)) if m else None
+    if not m:
+        return None
+    p3 = m.group(1)
+    town = re.sub(r"\s*\d{3}\s?\d{2}\s*$", "", loc).strip() or p3
+    if p3 in REGIONS:
+        area, cost = REGIONS[p3]
+        return area, cost, cost, "osobne"
+    if p3[0] == "8" or p3 in ("900", "901", "902", "903"):          # Bratislavský kraj
+        return town, BA_COST, CAR_BA_COST, "znami"
+    if p3[0] == "9" or p3[:2] in ("01", "02", "03"):                 # zvyšok západu a stredu
+        return town, POST_COST, CAR_FAR_COST, "posta"
+    return None                                                      # východ (04x–09x)
 
 
 def estimate(title, text):
@@ -380,6 +428,9 @@ def seller_questions(name, text):
         if not has_bat:
             q.append("aký je stav batérie")
         q.append("či sú odpojené od účtu")
+    elif "garmin" in n:
+        q.append("koľko dní vydrží batéria")
+        q.append("či sú odpojené od Garmin Connect účtu")
     elif "airpods" in n:
         q.append("či sú originál a máte k nim doklad o kúpe")
     elif any(k in n for k in ("ps5", "steam deck", "switch", "dualsense")):
@@ -400,7 +451,7 @@ def seller_questions(name, text):
     return q
 
 
-def seller_message(item, ev, text):
+def seller_message(item, ev, text, mode="osobne"):
     qs = seller_questions(ev["name"], text)
     if len(qs) > 1:
         q_txt = " Chcel by som sa spýtať, " + ", ".join(qs[:-1]) + " a " + qs[-1] + "."
@@ -409,8 +460,10 @@ def seller_message(item, ev, text):
     else:
         q_txt = ""
     return (f"Dobrý deň, mám záujem o {ev['name']} z Bazoša. Je inzerát ešte aktuálny?{q_txt} "
-            f"Viem prísť osobne a zaplatiť v hotovosti. "
-            f"Za {offer_price(item['price'])} € by som to zobral hneď, dalo by sa? Ďakujem, {SIGNATURE}")
+            + ("Viete ho poslať Packetou alebo na dobierku? Poštovné samozrejme zaplatím. "
+               "Pred odoslaním by som poprosil o krátke video, že všetko funguje. "
+               if mode == "posta" else "Viem prísť osobne a zaplatiť v hotovosti. ")
+            + f"Za {offer_price(item['price'])} € by som to zobral hneď, dalo by sa? Ďakujem, {SIGNATURE}")
 
 
 def send_telegram(msg, preview=True):
@@ -440,7 +493,7 @@ CAR_MIN_PROFIT = int(os.getenv("CAR_MIN_PROFIT", "500"))
 CAR_MAX_KM = 280_000
 CAR_PREP_COST = 300        # umytie/čistenie, drobnosti, prepis, STK/EK – paušál
 CAR_SELL_FACTOR = 0.93     # reálne predáš ~7 % pod mediánom inzerátov
-CAR_PAGES = 4
+CAR_PAGES = 5
 # Modely, ktoré sa na Slovensku dobre a rýchlo predávajú: (regex, dotaz na porovnanie, názov)
 CAR_MODELS = [
     (r"(š|s)koda\s+octavia|\boctavia\b", "octavia", "Škoda Octavia"),
@@ -545,7 +598,7 @@ def process_cars(state):
     base = "https://auto.bazos.sk"
     for page in range(CAR_PAGES):
         off = f"{page * 20}/" if page else ""
-        html = fetch(f"{base}/{off}?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod={CAR_MIN_PRICE}&cenado={CAR_MAX_PRICE}")
+        html = fetch(f"{base}/{off}?hledat=&{LOC}cenaod={CAR_MIN_PRICE}&cenado={CAR_MAX_PRICE}")
         if not html:
             print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
             break
@@ -557,7 +610,7 @@ def process_cars(state):
             reg = region(it["loc"])
             if not reg or not (CAR_MIN_PRICE <= it["price"] <= CAR_MAX_PRICE):
                 continue
-            area, travel = reg
+            area, _, travel, mode = reg
             head = f"{it['title']} {it['snippet']}"
             mdl = car_model(it["title"]) or car_model(head)
             if not mdl or CAR_BAD.search(head):
@@ -581,7 +634,7 @@ def process_cars(state):
                 continue
             notes = [f"porovnané s {n} inzerátmi ({year}±1)", f"príprava −{CAR_PREP_COST} €"]
             if travel:
-                notes.append(f"cesta: {area} (−{travel} €)")
+                notes.append(f"{'🤝 BA – ' if mode == 'znami' else 'cesta: '}{area} (−{travel} €)")
             if not km:
                 notes.append("km neuvedené")
             if it["price"] < 0.55 * median:
@@ -609,11 +662,11 @@ def main():
     for sec in SECTIONS:
         for page in range(PAGES):
             off = f"{page * 20}/" if page else ""
-            pages.append((sec, f"?hledat=&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=", off))
+            pages.append((sec, f"?hledat=&{LOC}cenaod=50&cenado=", off))
     for sec, q in EXTRA_SEARCHES:
-        pages.append((sec, f"?hledat={requests.utils.quote(q)}&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=50&cenado=", ""))
+        pages.append((sec, f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=50&cenado=", ""))
     for q in CONSOLE_SEARCHES:
-        pages.append(("pc", f"?hledat={requests.utils.quote(q)}&hlokalita={PSC}&humkreis={RADIUS_KM}&cenaod=15&cenado=", ""))
+        pages.append(("pc", f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=15&cenado=", ""))
 
     for sec, query, off in pages:
         base = f"https://{sec}.bazos.sk"
@@ -629,7 +682,7 @@ def main():
             reg = region(it["loc"])
             if not reg or it["price"] <= 0:
                 continue
-            area, travel = reg
+            area, travel, _, mode = reg
             quick = estimate(it["title"], it["snippet"])
             if quick and (too_cheap_console(quick[0], quick[1], it["price"], it["snippet"])
                           or is_accessory_or_bundle(quick[0], it["title"], it["price"], quick[1])):
@@ -641,7 +694,13 @@ def main():
             ev = evaluate(it, text)
             if ev:
                 ev["profit"] -= travel
-                if travel:
+                if mode == "znami":
+                    ev["notes"].append(f"🤝 kúpia známi v BA a pošlú (−{travel} €)")
+                elif mode == "posta":
+                    ev["notes"].append(f"📦 poslať poštou/Packetou na dobierku (−{travel} €)")
+                    if re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
+                        ev["notes"].append("⚠️ predajca chce iba osobný odber")
+                elif travel:
                     ev["notes"].append(f"cesta: {area} (−{travel} €)")
             if not ev or ev["profit"] < required_profit(ev["value"]):
                 continue
@@ -652,7 +711,7 @@ def main():
                    + f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
             send_telegram(msg)
             # správa pre predajcu – ťuknutím na text sa skopíruje
-            send_telegram(f"<code>{esc(seller_message(it, ev, text))}</code>", preview=False)
+            send_telegram(f"<code>{esc(seller_message(it, ev, text, mode))}</code>", preview=False)
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
