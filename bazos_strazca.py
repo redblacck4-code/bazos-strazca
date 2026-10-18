@@ -670,6 +670,125 @@ def process_cars(state):
     return alerts
 
 
+# =====================================================================
+#                              VINTED
+# =====================================================================
+# Vinted sa kontroluje zriedkavo (predvolene ~každých 20 min), aby nás neblokoval.
+VINTED_ON = os.getenv("VINTED_ON", "1") == "1"
+VINTED_EVERY = int(os.getenv("VINTED_EVERY", "10"))   # každý N-tý beh (pri intervale 120 s = ~20 min)
+VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/CZ/PL) €
+VINTED_BASE = "https://www.vinted.sk"
+VINTED_QUERIES = [
+    ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700), ("iphone 12 pro", 260),
+    ("macbook air m1", 450), ("macbook air m2", 600), ("macbook pro m1", 650), ("macbook pro m3", 1100),
+    ("playstation 5", 420), ("steam deck", 450), ("nintendo switch oled", 230), ("nintendo switch 2", 380),
+    ("apple watch", 350), ("garmin fenix", 550), ("garmin forerunner", 400),
+    ("dji mini", 650), ("dji avata", 600), ("airpods pro", 130), ("ipad air", 400), ("galaxy s24", 600),
+]
+_vinted_session = requests.Session()
+_vinted_blocked_until = 0.0
+_vinted_ready = False
+
+
+def _vinted_cookie():
+    """Získa anonymnú cookie (bez prihlásenia), ktorú Vinted vyžaduje pre API."""
+    global _vinted_ready
+    _vinted_session.cookies.clear()
+    r = _vinted_session.get(VINTED_BASE + "/", headers=UA, timeout=20)
+    _vinted_ready = r.status_code == 200
+    return _vinted_ready
+
+
+def _vinted_get(path):
+    global _vinted_blocked_until, _vinted_ready
+    if time.time() < _vinted_blocked_until:
+        return None
+    for attempt in range(2):
+        if not _vinted_ready and not _vinted_cookie():
+            break
+        time.sleep(2 + random.random() * 2)
+        r = _vinted_session.get(VINTED_BASE + path, headers={**UA, "Accept": "application/json"}, timeout=20)
+        if r.status_code == 200:
+            try:
+                return r.json()
+            except ValueError:
+                return None
+        if r.status_code == 401:                 # cookie vypršala – obnov a skús znova
+            _vinted_ready = False
+            continue
+        if r.status_code in (403, 429, 503):
+            _vinted_blocked_until = time.time() + 3600
+            print(f"[!] Vinted brzdí (HTTP {r.status_code}) – pauza 60 min", file=sys.stderr)
+            return None
+        print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
+        return None
+    return None
+
+
+def _money(v):
+    if isinstance(v, dict):
+        v = v.get("amount")
+    try:
+        return float(str(v).replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _vinted_desc(url):
+    """Popis z detailu inzerátu (iba pre kandidátov)."""
+    try:
+        time.sleep(2 + random.random())
+        t = _vinted_session.get(url, headers=UA, timeout=20).text
+        m = re.search(r'"description":"((?:[^"\\]|\\.)*)"', t)
+        return json.loads('"' + m.group(1) + '"')[:900] if m else ""
+    except Exception:
+        return ""
+
+
+def process_vinted(state):
+    if not VINTED_ON:
+        return 0
+    alerts = 0
+    for q, max_price in VINTED_QUERIES:
+        data = _vinted_get(f"/api/v2/catalog/items?search_text={requests.utils.quote(q)}"
+                           f"&order=newest_first&per_page=40&price_to={max_price}")
+        if data is None:
+            if time.time() < _vinted_blocked_until:
+                break
+            continue
+        for x in data.get("items", []):
+            key = f"v{x.get('id')}"
+            price = _money(x.get("total_item_price") or x.get("price"))
+            prev = state.get(key)
+            if not price or (prev is not None and price >= prev):
+                continue
+            state[key] = price
+            title = x.get("title") or ""
+            quick = estimate(title, title)
+            if not quick:
+                continue
+            total = price + VINTED_SHIP
+            if quick[1] * SELL_FACTOR - total < required_profit(quick[1]):
+                continue
+            url = x.get("url") or f"{VINTED_BASE}/items/{x.get('id')}"
+            text = _vinted_desc(url) or title
+            item = {"title": title, "price": round(total), "loc": "Vinted", "url": url, "snippet": ""}
+            if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
+                continue
+            ev = evaluate(item, text)
+            if not ev or ev["profit"] < required_profit(ev["value"]):
+                continue
+            ev["notes"].insert(0, f"cena s ochranou {price:.0f} € + poštovné ~{VINTED_SHIP} €")
+            drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
+            msg = (f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
+                   f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
+                   f"ℹ️ {esc('; '.join(ev['notes']))}\n"
+                   f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
+            send_telegram(msg)
+            alerts += 1
+    return alerts
+
+
 # --------------------------------------------------------------------- main
 _cycle = 0
 
@@ -741,6 +860,11 @@ def main():
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
+    if VINTED_ON and _cycle % VINTED_EVERY == 1:
+        try:
+            alerts += process_vinted(state)
+        except Exception as e:
+            print(f"[!] Vinted chyba: {e}", file=sys.stderr)
     # drž stav menší – nechaj posledných 15000 ID
     if len(state) > 15000:
         state = dict(list(state.items())[-15000:])
