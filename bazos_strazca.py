@@ -783,10 +783,20 @@ def _vinted_desc(url):
         return ""
 
 
+VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "100"))   # na Vinted prísnejšie – kupuješ naslepo
+VINTED_MAX_ALERTS = int(os.getenv("VINTED_MAX_ALERTS", "3"))     # max. počet tipov z jedného prechodu
+VINTED_MAX_RATIO = 0.75        # cena s poštovným najviac 75 % bežnej ceny
+VINTED_BAD = re.compile(
+    r"uszkodz|na\s+części|na\s+czesci|pękni|pekni|pęknię|rozbit|zbit|nie\s+działa|nie\s+dziala|zablokow|blokad|"
+    r"icloud\s*(lock|blok|zablok)|simlock|poškoden|poskoden|prasknut|nefunk|na\s+diely|na\s+díly|"
+    r"vadn|ohnut|wymian\w*\s+(ekran|wyświetl)|neorigin|nieorygin|zamiennik|replika|kopia|podróbk", re.I)
+VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Dostateczny)", re.I)
+
+
 def process_vinted(state):
     if not VINTED_ON:
         return 0
-    alerts = 0
+    cands = []
     for q, max_price in VINTED_QUERIES:
         data = _vinted_search_html(q, max_price)
         if data is None:
@@ -801,37 +811,44 @@ def process_vinted(state):
                 continue
             state[key] = price
             title = x.get("title") or ""
-            model_attr = re.search(r"Model:\s*([^,]+)", x.get("full", ""))
+            full = x.get("full", "")
+            model_attr = re.search(r"Model:\s*([^,]+)", full)
             if model_attr and model_attr.group(1).lower() not in title.lower():
                 title = f"{title} {model_attr.group(1)}"
             quick = estimate(title, title)
-            if not quick or VINTED_ACC.search(title):
+            if not quick or VINTED_ACC.search(title) or VINTED_BAD.search(title) or VINTED_BAD_STATE.search(full):
                 continue
             # telefóny majú na Vinted v atribútoch "Model: …" – kryty a príslušenstvo nie
-            if quick[0].startswith(("iPhone", "Galaxy", "Pixel", "Xiaomi")) and "Model:" not in x.get("full", "Model:"):
-                continue
-            if price < 0.4 * quick[1]:        # zlomok ceny = príslušenstvo alebo podvod
+            if quick[0].startswith(("iPhone", "Galaxy", "Pixel", "Xiaomi")) and "Model:" not in full:
                 continue
             total = price + VINTED_SHIP
-            if quick[1] * SELL_FACTOR - total < required_profit(quick[1]):
+            if price < 0.4 * quick[1] or total > VINTED_MAX_RATIO * quick[1]:
+                continue
+            if quick[1] * SELL_FACTOR - total < VINTED_MIN_PROFIT:
                 continue
             url = x.get("url") or f"{VINTED_BASE}/items/{x.get('id')}"
             text = _vinted_desc(url) or title
+            if VINTED_BAD.search(text):
+                continue                       # na Vinted iba nepoškodené kusy (batéria je OK)
             item = {"title": title, "price": round(total), "loc": "Vinted", "url": url, "snippet": ""}
             if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
                 continue
             ev = evaluate(item, text)
-            if not ev or ev["profit"] < required_profit(ev["value"]):
+            if not ev or ev["profit"] < VINTED_MIN_PROFIT or any("GB neuvedené" in n for n in ev["notes"]):
+                continue
+            if any(k in n for n in ev["notes"] for k in ("displej", "zadné sklo", "neoriginálny")):
                 continue
             ev["notes"].insert(0, f"cena s ochranou {price:.0f} € + poštovné ~{VINTED_SHIP} €")
-            drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
-            msg = (f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
-                   f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
-                   f"ℹ️ {esc('; '.join(ev['notes']))}\n"
-                   f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
-            send_telegram(msg)
-            alerts += 1
-    return alerts
+            cands.append((ev["profit"], price, prev, url, ev))
+    cands.sort(key=lambda c: -c[0])
+    for profit, price, prev, url, ev in cands[:VINTED_MAX_ALERTS]:
+        drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
+        msg = (f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
+               f"Zisk ~<b>{profit} €</b> (bežne ~{ev['value']} €)\n"
+               f"ℹ️ {esc('; '.join(ev['notes']))}\n"
+               f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
+        send_telegram(msg)
+    return min(len(cands), VINTED_MAX_ALERTS)
 
 
 # --------------------------------------------------------------------- main
