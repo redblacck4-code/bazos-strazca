@@ -476,11 +476,11 @@ def seller_message(item, ev, text, mode="osobne"):
         q_txt = " Chcel by som sa spýtať, " + qs[0] + "."
     else:
         q_txt = ""
-    return (f"Dobrý deň, mám záujem o {ev['name']} z Bazoša. Je inzerát ešte aktuálny?{q_txt} "
-            + ("Viete ho poslať Packetou alebo na dobierku? Poštovné samozrejme zaplatím. "
-               "Pred odoslaním by som poprosil o krátke video, že všetko funguje. "
-               if mode == "posta" else "Viem prísť osobne a zaplatiť v hotovosti. ")
-            + f"Za {offer_price(item['price'])} € by som to zobral hneď, dalo by sa? Ďakujem, {SIGNATURE}")
+    if mode == "posta":
+        return (f"Dobrý deň, je inzerát na {ev['name']} ešte aktuálny? Ak áno, mám záujem. "
+                f"Viete ho poslať Packetou alebo na dobierku? Ďakujem, {SIGNATURE}")
+    return (f"Dobrý deň, je inzerát na {ev['name']} ešte aktuálny? Ak áno, mám záujem, "
+            f"prídem osobne a zaplatím v hotovosti. Ďakujem, {SIGNATURE}")
 
 
 def send_telegram(msg, preview=True):
@@ -602,10 +602,8 @@ def car_seller_message(it, name, year, km, text):
     q.append("či nebolo havarované a nemá koróziu")
     qtxt = (" Chcel by som sa spýtať, " + ", ".join(q[:-1]) + " a " + q[-1] + ".") if len(q) > 1 \
         else (" Chcel by som sa spýtať, " + q[0] + ".")
-    offer = max(100, int(round(it["price"] * 0.9 / 50.0)) * 50)
-    return (f"Dobrý deň, mám záujem o {name}{' ' + str(year) if year else ''} z Bazoša. Je inzerát ešte aktuálny?{qtxt} "
-            f"Mohli by ste mi poslať VIN, aby som si overil históriu a km? Viem prísť osobne na obhliadku a skúšobnú jazdu. "
-            f"Pri dohode by som za {offer} € kupoval hneď. Ďakujem, {SIGNATURE}")
+    return (f"Dobrý deň, je inzerát na {name}{' ' + str(year) if year else ''} ešte aktuálny? Ak áno, mám záujem, "
+            f"prídem osobne na obhliadku a zaplatím v hotovosti. Ďakujem, {SIGNATURE}")
 
 
 def process_cars(state):
@@ -665,6 +663,7 @@ def process_cars(state):
                    f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
             send_telegram(msg)
             send_telegram(f"<code>{esc(car_seller_message(it, mdl[1], year, km, text))}</code>", preview=False)
+            send_telegram(f"<code>{it['id']}</code>", preview=False)
             alerts += 1
         time.sleep(1.5)
     return alerts
@@ -930,6 +929,7 @@ def main():
             send_telegram(msg)
             # správa pre predajcu – ťuknutím na text sa skopíruje
             send_telegram(f"<code>{esc(seller_message(it, ev, text, mode))}</code>", preview=False)
+            send_telegram(f"<code>{it['id']}</code>", preview=False)
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
