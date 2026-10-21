@@ -21,6 +21,7 @@ RADIUS_KM = 90         # (nepoužíva sa – hľadá sa po celom SK a filtruje p
 LOC = "hlokalita=&humkreis=&"   # celé Slovensko; výber oblastí robí funkcia region()
 # Mimo domácej zóny (REGIONS):
 BA_COST = int(os.getenv("BA_COST", "15"))        # elektronika z BA kraja – kúpia známi a pošlú (€)
+KE_COST = int(os.getenv("KE_COST", "15"))        # elektronika len z mesta Košice – kúpi kamarát a pošle (€)
 POST_COST = int(os.getenv("POST_COST", "10"))    # elektronika zo zvyšku západu/stredu – poštou/Packetou (€)
 CAR_BA_COST = 40       # auto z BA kraja – cesta vlakom tam, autom späť (€)
 CAR_FAR_COST = 45      # auto zo zvyšku západu/stredu (€)
@@ -341,6 +342,8 @@ def region(loc):
     if p3 in REGIONS:
         area, cost = REGIONS[p3]
         return area, cost, cost, "osobne"
+    if p3[:2] == "04" and re.match(r"ko[sš]ice", town, re.I):        # iba mesto Košice (nie okolie)
+        return "Košice", KE_COST, None, "kosice"
     if p3[0] == "8" or p3 in ("900", "901", "902", "903"):          # Bratislavský kraj
         return town, BA_COST, CAR_BA_COST, "znami"
     if p3[0] == "9" or p3[:2] in ("01", "02", "03"):                 # zvyšok západu a stredu
@@ -624,7 +627,7 @@ def process_cars(state):
                 continue
             state[it["id"]] = it["price"]
             reg = region(it["loc"])
-            if not reg or not (CAR_MIN_PRICE <= it["price"] <= CAR_MAX_PRICE):
+            if not reg or reg[3] == "kosice" or not (CAR_MIN_PRICE <= it["price"] <= CAR_MAX_PRICE):
                 continue
             area, _, travel, mode = reg
             head = f"{it['title']} {it['snippet']}"
@@ -913,6 +916,8 @@ def main():
                 ev["profit"] -= travel
                 if mode == "znami":
                     ev["notes"].append(f"🤝 kúpia známi v BA a pošlú (−{travel} €)")
+                elif mode == "kosice":
+                    ev["notes"].append(f"🤝 kúpi kamarát v Košiciach a pošle (−{travel} €)")
                 elif mode == "posta":
                     ev["notes"].append(f"📦 poslať poštou/Packetou na dobierku (−{travel} €)")
                     if re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
