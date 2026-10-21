@@ -185,11 +185,13 @@ CONSOLE_VALUES = {
     "deck_lcd": ("Steam Deck LCD", 300),
     "switch2": ("Nintendo Switch 2", 400),
     "switch_oled": ("Nintendo Switch OLED", 240),
+    "xbox_x_digital": ("Xbox Series X Digital", 280),
+    "xbox_x": ("Xbox Series X", 320),
 }
 # Inzeráty, ktoré iba spomínajú konzolu (hry, príslušenstvo, PS Portal…)
 CONSOLE_JUNK = re.compile(
     r"portal|\bvr2?\b|psvr|headset|slúchad|sluchad|volant|stojan|nabíj|nabij|\bdok\b|dock|skin|cover|"
-    r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam)", re.I)
+    r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam|xbox)", re.I)
 GAMES = re.compile(r"\bhr(a|y|u|e|ou|ami)\b|\bhier\b|\bgames?\b|\bcd\b|\bdlc\b|\bkód\b|\bkod\b", re.I)
 CONSOLE_NAMES = {v[0] for v in CONSOLE_VALUES.values()}
 GAME_DESC = re.compile(r"^\W*(predám|predam|ponúkam|ponukam)?\s*(hru|hry|hra)\b|\bhr(u|a)\s+(na|pre)\s+(ps|playstation|switch|nintendo)", re.I)
@@ -202,7 +204,7 @@ def too_cheap_console(name, value, price, text=""):
     return price < 0.4 * value or bool(GAME_DESC.search(text or ""))
 BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
-CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5"]
+CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5", "xbox series x"]
 # Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
 EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
                   ("pc", "rx 7800"), ("foto", "dji"), ("pc", "dji")]
@@ -232,7 +234,7 @@ def console_estimate(title):
     if CONSOLE_JUNK.search(t) or (GAMES.search(t) and not BUNDLE.search(t)):
         return None
     is_pad = re.search(r"dualsense|ovl[aá]d[aá][cč]|gamepad|joystick", t)
-    is_console = re.search(r"\+|konzol|ps5\s*(slim|pro|digital|disc)|playstation\s*5\s*(slim|pro|digital|disc)|"
+    is_console = re.search(r"\+|konzol|xbox\s*series|ps5\s*(slim|pro|digital|disc)|playstation\s*5\s*(slim|pro|digital|disc)|"
                            r"\b(825|1)\s?(gb|tb)\b", t)
     if is_pad and not is_console:
         key = "dualsense_edge" if "edge" in t else ("dualsense" if re.search(r"dualsense|ps5|playstation", t) else None)
@@ -248,6 +250,9 @@ def console_estimate(title):
         if "oled" in t:
             return CONSOLE_VALUES["deck_oled_1tb" if re.search(r"\b1\s?tb", t) else "deck_oled"]
         return CONSOLE_VALUES["deck_lcd_512" if "512" in t else "deck_lcd"]
+    if re.search(r"xbox\s*series\s*x\b|\bxsx\b", t) and not re.search(r"series\s*s\b|x\s*[/|-]\s*s\b", t) \
+            and not re.match(r"\W*(predám\s+|predam\s+|nový\s+|novy\s+)?(ovl[aá]d[aá][cč]|gamepad|joystick)", t):
+        return CONSOLE_VALUES["xbox_x_digital" if re.search(r"digit", t) else "xbox_x"]
     if "switch" in t and re.search(r"nintendo|switch\s*(oled|2)\b", t):
         if re.search(r"switch\s*2\b", t):
             return CONSOLE_VALUES["switch2"]
@@ -453,7 +458,7 @@ def seller_questions(name, text):
         q.append("či sú odpojené od Garmin Connect účtu")
     elif "airpods" in n:
         q.append("či sú originál a máte k nim doklad o kúpe")
-    elif any(k in n for k in ("ps5", "steam deck", "switch", "dualsense")):
+    elif any(k in n for k in ("ps5", "steam deck", "switch", "dualsense", "xbox")):
         if "dualsense" in n:
             q.append("či nemá drift páčok")
         else:
@@ -785,7 +790,7 @@ def _vinted_desc(url):
         return ""
 
 
-VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "100"))   # na Vinted prísnejšie – kupuješ naslepo
+VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "80"))    # na Vinted prísnejšie – kupuješ naslepo
 VINTED_MAX_ALERTS = int(os.getenv("VINTED_MAX_ALERTS", "3"))     # max. počet tipov z jedného prechodu
 VINTED_MAX_RATIO = 0.75        # cena s poštovným najviac 75 % bežnej ceny
 VINTED_BAD = re.compile(
