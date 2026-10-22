@@ -301,6 +301,12 @@ def fetch(url):
     return None
 
 
+def few_new(items, state):
+    """True = na strane je už prevažne videné (okrem pár topovaných) -> ďalšie strany netreba."""
+    new = sum(1 for it in items if it["id"] not in state)
+    return new < len(items) - 5
+
+
 def parse_list(html, base):
     soup = BeautifulSoup(html, "html.parser")
     out = []
@@ -626,7 +632,9 @@ def process_cars(state):
             if time.time() >= _blocked_until:
                 print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
             break
-        for it in parse_list(html, base):
+        items = parse_list(html, base)
+        stop = few_new(items, state)
+        for it in items:
             prev = state.get(it["id"])
             if prev is not None and it["price"] >= prev:
                 continue
@@ -673,6 +681,8 @@ def process_cars(state):
             send_telegram(f"<code>{esc(car_seller_message(it, mdl[1], year, km, text))}</code>", preview=False)
             send_telegram(f"<code>{it['id']}</code>", preview=False)
             alerts += 1
+        if stop:
+            break                      # ďalšie strany už sú videné
         time.sleep(1.5)
     return alerts
 
@@ -871,12 +881,18 @@ def process_vinted(state):
 
 # --------------------------------------------------------------------- main
 _cycle = 0
+_last_targeted = 0.0
+_last_vinted = 0.0
+TARGETED_MIN = int(os.getenv("TARGETED_MIN", "10"))                       # cielené hľadania každých X min
+VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # Vinted každých X min
 
 
 def main():
-    global _cycle
+    global _cycle, _last_targeted, _last_vinted
     _cycle += 1
-    targeted = (_cycle % 5 == 1)     # cielené hľadania len pri každom 5. behu (1., 6., 11. …)
+    targeted = time.time() - _last_targeted >= TARGETED_MIN * 60
+    if targeted:
+        _last_targeted = time.time()
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
     first_run = not state
     alerts = 0
@@ -891,7 +907,10 @@ def main():
     for q in (CONSOLE_SEARCHES if targeted else []):
         pages.append(("pc", f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=15&cenado=", ""))
 
+    done_secs = set()                 # sekcie, kde sme už narazili na videné inzeráty
     for sec, query, off in pages:
+        if off and query.startswith("?hledat=&") and sec in done_secs:
+            continue                      # hlbšie strany netreba – nové sú len na začiatku
         base = f"https://{sec}.bazos.sk"
         html = fetch(f"{base}/{off}{query}")
         if not html:
@@ -899,7 +918,10 @@ def main():
                 break                         # Bazoš brzdí – zvyšok behu preskoč
             print(f"[!] {sec} {off or 'strana 0'} {query[:40]} sa nenačítala", file=sys.stderr)
             continue
-        for it in parse_list(html, base):
+        items = parse_list(html, base)
+        if query.startswith("?hledat=&") and few_new(items, state):
+            done_secs.add(sec)
+        for it in items:
             prev = state.get(it["id"])
             if prev is not None and it["price"] >= prev:
                 continue                      # už videné a nezlacnelo
@@ -943,7 +965,8 @@ def main():
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
-    if VINTED_ON and _cycle % VINTED_EVERY == 1:
+    if VINTED_ON and time.time() - _last_vinted >= VINTED_MIN * 60:
+        _last_vinted = time.time()
         try:
             alerts += process_vinted(state)
         except Exception as e:
@@ -974,6 +997,6 @@ def loop(interval):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--loop":
-        loop(int(sys.argv[2]) if len(sys.argv) > 2 else 120)
+        loop(int(sys.argv[2]) if len(sys.argv) > 2 else 60)
     else:
         main()

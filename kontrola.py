@@ -8,7 +8,7 @@ live = "offline" not in sys.argv
 print("=== NASTAVENIA ===")
 print(f"Bazoš min. zisk: {b.MIN_PROFIT} € (lacné veci ~30 % z ceny)")
 print(f"Vinted: {'zapnutý' if b.VINTED_ON else 'VYPNUTÝ'}, min. zisk {b.VINTED_MIN_PROFIT} €, "
-      f"každý {b.VINTED_EVERY}. beh, max {b.VINTED_MAX_ALERTS} tipy naraz")
+      f"každých {b.VINTED_MIN} min, max {b.VINTED_MAX_ALERTS} tipy naraz")
 print(f"Autá: {b.CAR_MIN_PRICE}–{b.CAR_MAX_PRICE} €, min. zisk {b.CAR_MIN_PROFIT} €")
 print(f"Telegram: {'nastavený' if os.getenv('TELEGRAM_TOKEN') and os.getenv('TELEGRAM_CHAT_ID') else 'tu sa nekontroluje (bot ho má v strazca.sh)'}")
 
