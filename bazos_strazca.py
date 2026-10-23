@@ -162,6 +162,19 @@ HARD_EXCLUDE = re.compile(
     r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
     r"face\s*id\s*(nefung|nejde|nefunk|nie)|nefunguje\s*face|nezapne|nezapína|doska|"
     r"vodou|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic|obal\b|kryt\b|puzdro", re.I)
+# "Predávam fotku telefónu, nie telefón", "len krabica" a pod. (SK/CZ/PL/EN/DE/IT/FR/ES)
+PHOTO_SCAM = re.compile(
+    r"(predávam|predavam|prodávám|prodavam|sprzedaj\w*|selling|sell|verkaufe|vendo|vends?)\s+(len\s+|iba\s+|jen\s+|pouze\s+|tylko\s+|only\s+|nur\s+|solo\s+|seulement\s+)?"
+    r"(the\s+|a\s+|an\s+|das\s+|ein\s+|la\s+|une?\s+)?(fotk|fotograf|obr[aá]z|zdj[eę]ci|photo|picture|pic\b|image|bild|foto)|"
+    r"(len|iba|jen|pouze|tylko|only|nur|solo|seulement)\s+(the\s+|das\s+|la\s+)?(fotk|fotograf|obr[aá]z|zdj[eę]ci|photo|picture|bild|foto|krabic|pude[lł]k|box|karton|schachtel|scatola|bo[iî]te)|"
+    r"\bnie\s+(je\s+)?telef[oó]n|nen[ií]\s+telefon|\bnie\s+telefon|not\s+(the\s+|a\s+)?(phone|device|iphone)|kein\s+(handy|telefon|iphone)|"
+    r"non\s+(il\s+)?telefono|pas\s+(le\s+)?t[eé]l[eé]phone|no\s+(el\s+)?tel[eé]fono|"
+    r"(fotk|fotograf|zdj[eę]ci|photo|picture|bild|foto)\w*\s+(telef[oó]n|telefonu|phone|iphone|handy)\w*\s*,?\s*(nie|not|nicht|non|pas|no)\b|"
+    r"pr[aá]zdn\w*\s+krabic|pust\w*\s+pude[lł]k|empty\s+box|leere\s+(box|schachtel|verpackung)", re.I)
+# Nadpis začína "Foto/Fotka/Zdjęcie/Photo …" alebo značka je "zdjęcie/foto" = predáva sa obrázok
+TITLE_PHOTO = re.compile(
+    r"^\W*(foto|fotka|fotku|fotografi\w*|zdj[eę]ci\w*|photo|picture|bild|obr[aá]z\w*|image)\b|"
+    r"(značka|znacka|brand|marka):\s*(zdj[eę]ci\w*|foto\w*|photo|picture|obr[aá]z\w*|bild)\b", re.I)
 # Odpočty za opravy (€)
 DAMAGE = [
     (re.compile(r"(displej|obrazovk|lcd)[^.]{0,40}(rozbit|prask|pukn|poškod|čiar|nefunk)|"
@@ -397,7 +410,7 @@ def estimate(title, text):
 
 def evaluate(item, text):
     full = f"{item['title']} {text}"
-    if HARD_EXCLUDE.search(full):
+    if HARD_EXCLUDE.search(full) or PHOTO_SCAM.search(full) or TITLE_PHOTO.search(item["title"]):
         return None
     est = estimate(item["title"], text)
     if not est:
@@ -789,15 +802,40 @@ def _money(v):
         return 0.0
 
 
-def _vinted_desc(url):
-    """Popis z detailu inzerátu (iba pre kandidátov)."""
+_FEEDBACK_RE = re.compile(r'\\?"(?:feedback_count|feedbackCount|positive_feedback_count|positiveFeedbackCount)\\?"\s*:\s*(\d+)')
+_REVIEWS_TXT_RE = re.compile(r"(\d+)\s*(?:recenzi|hodnoten|reviews?|opini|ocen|bewertung)", re.I)
+VINTED_MIN_REVIEWS = int(os.getenv("VINTED_MIN_REVIEWS", "1"))   # predajca bez recenzií = väčšinou scam účet
+
+
+def _vinted_detail(url):
+    """(popis, počet recenzií predajcu alebo None) z detailu inzerátu – iba pre kandidátov."""
     try:
         time.sleep(2 + random.random())
         t = _vinted_session.get(url, headers=UA, timeout=20).text
-        m = re.search(r'"description":"((?:[^"\\]|\\.)*)"', t)
-        return json.loads('"' + m.group(1) + '"')[:900] if m else ""
     except Exception:
-        return ""
+        return "", None
+    desc = ""
+    m = re.search(r'"description":"((?:[^"\\]|\\.)*)"', t)
+    if m:
+        try:
+            desc = json.loads('"' + m.group(1) + '"')[:900]
+        except Exception:
+            desc = m.group(1)[:900]
+    else:                                   # Next.js payload s escapovanými úvodzovkami
+        m = re.search(r'\\"description\\":\\"(.*?)\\"[,}]', t)
+        if m:
+            desc = m.group(1).replace("\\\\n", "\n")[:900]
+    fb = _FEEDBACK_RE.search(t)
+    if fb:
+        reviews = int(fb.group(1))
+    else:
+        rt = _REVIEWS_TXT_RE.search(t)
+        reviews = int(rt.group(1)) if rt else None
+    return desc, reviews
+
+
+def _vinted_desc(url):
+    return _vinted_detail(url)[0]
 
 
 VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "80"))    # na Vinted prísnejšie – kupuješ naslepo
@@ -842,6 +880,8 @@ def process_vinted(state):
             if model_attr and model_attr.group(1).lower() not in title.lower():
                 title = f"{title} {model_attr.group(1)}"
             quick = estimate(title, title)
+            if TITLE_PHOTO.search(x.get("title") or "") or TITLE_PHOTO.search(full):
+                continue                       # "Foto iPhonu 17 Pro", značka "zdjęcie" = predáva obrázok
             if not quick or VINTED_ACC.search(title) or VINTED_BAD.search(title) or VINTED_BAD_STATE.search(full):
                 continue
             # telefóny majú na Vinted v atribútoch "Model: …" – kryty a príslušenstvo nie
@@ -853,10 +893,13 @@ def process_vinted(state):
             if quick[1] * SELL_FACTOR - total < VINTED_MIN_PROFIT:
                 continue
             url = x.get("url") or f"{VINTED_BASE}/items/{x.get('id')}"
-            text = _vinted_desc(url) or title
+            desc, reviews = _vinted_detail(url)
+            if reviews is not None and reviews < VINTED_MIN_REVIEWS:
+                continue                       # predajca bez recenzií – typický scam účet
+            text = desc or title
             if VINTED_BAD.search(text):
                 continue                       # na Vinted iba nepoškodené kusy (batéria je OK)
-            if VINTED_SCAM.search(f"{title} {text}"):
+            if VINTED_SCAM.search(f"{title} {text}") or PHOTO_SCAM.search(f"{title} {text}"):
                 continue                       # platba/kontakt mimo Vinted = typický podvod
             item = {"title": title, "price": round(total), "loc": "Vinted", "url": url, "snippet": ""}
             if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
@@ -867,6 +910,10 @@ def process_vinted(state):
             if any(k in n for n in ev["notes"] for k in ("displej", "zadné sklo", "neoriginálny")):
                 continue
             ev["notes"].insert(0, f"cena s ochranou {price:.0f} € + poštovné ~{VINTED_SHIP} €")
+            if not desc:
+                ev["notes"].append("⚠️ popis sa nenačítal – prečítaj ho pred kúpou")
+            ev["notes"].append(f"⭐ predajca: {reviews} recenzií" if reviews is not None
+                               else "⚠️ počet recenzií sa nezistil – pozri profil")
             cands.append((ev["profit"], price, prev, url, ev))
     cands.sort(key=lambda c: -c[0])
     for profit, price, prev, url, ev in cands[:VINTED_MAX_ALERTS]:

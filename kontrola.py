@@ -60,5 +60,11 @@ if live:
         d = None
         print(f"  [!] Vinted: {e.__class__.__name__}")
     print(f"  {OK if d and d['items'] else NO} Vinted: " + (f"{len(d['items'])} inzerátov" if d else "zablokované / chyba"))
+    if d and d["items"]:
+        print("  Recenzie predajcov (prvé 3 inzeráty):")
+        for x in d["items"][:3]:
+            desc, rev = b._vinted_detail(x["url"])
+            print(f"    {OK if rev is not None else NO} {rev if rev is not None else 'nezistené'} recenzií · "
+                  f"popis {'OK' if desc else 'nenačítaný'} · {x['url']}")
 
 print(f"\nHotovo. Nerozpoznané vzorky: {miss}")
