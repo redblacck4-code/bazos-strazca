@@ -857,11 +857,22 @@ VINTED_SCAM = re.compile(
 VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Dostateczny)", re.I)
 
 
+VINTED_PER_PASS = int(os.getenv("VINTED_PER_PASS", "2"))   # koľko ostatných hľadaní na prechod (striedajú sa)
+VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "macbook"), re.I)   # tieto sa hľadajú pri každom prechode
+_vinted_pos = 0
+
+
 def process_vinted(state):
+    global _vinted_pos
     if not VINTED_ON:
         return 0
     cands = []
-    for q, max_price in VINTED_QUERIES:
+    prio = [qq for qq in VINTED_QUERIES if VINTED_PRIORITY.search(qq[0])]
+    rest = [qq for qq in VINTED_QUERIES if not VINTED_PRIORITY.search(qq[0])]
+    n = min(VINTED_PER_PASS, len(rest))
+    batch = prio + [rest[(_vinted_pos + i) % len(rest)] for i in range(n)] if rest else prio
+    _vinted_pos = (_vinted_pos + n) % len(rest) if rest else 0
+    for q, max_price in batch:
         data = _vinted_search_html(q, max_price)
         if data is None:
             if time.time() < _vinted_blocked_until:
@@ -1026,11 +1037,35 @@ def main():
     print(f"{time.strftime('%d.%m. %H:%M')} Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}{blocked}")
 
 
+BREAK_CHANCE = float(os.getenv("BREAK_CHANCE", "0.03"))   # ~raz za 30 behov prestávka 5–15 min
+QUIET_FROM = int(os.getenv("QUIET_FROM", "22"))   # nočný kľud od (hodina)
+QUIET_TO = int(os.getenv("QUIET_TO", "5"))        # do (hodina)
+
+
+def quiet_seconds():
+    """Koľko sekúnd ešte trvá nočný kľud (0 = nie je noc)."""
+    if QUIET_FROM == QUIET_TO:
+        return 0
+    now = time.localtime()
+    h = now.tm_hour
+    night = (h >= QUIET_FROM or h < QUIET_TO) if QUIET_FROM > QUIET_TO else (QUIET_FROM <= h < QUIET_TO)
+    if not night:
+        return 0
+    secs_now = h * 3600 + now.tm_min * 60 + now.tm_sec
+    left = QUIET_TO * 3600 - secs_now
+    return left if left > 0 else left + 86400
+
+
 def loop(interval):
     """Nepretržitý režim pre server/VPS/starý mobil: prechádza Bazoš každých `interval` sekúnd."""
     print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
     last_cache_clear = time.time()
     while True:
+        q = quiet_seconds()
+        if q:
+            print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
+            time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
+            continue
         start = time.time()
         try:
             main()
@@ -1039,7 +1074,11 @@ def loop(interval):
         if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
             _comp_cache.clear()
             last_cache_clear = time.time()
-        time.sleep(max(10, interval - (time.time() - start)))
+        wait = interval * random.uniform(0.75, 1.5) - (time.time() - start)   # nepravidelný rytmus
+        if random.random() < BREAK_CHANCE:
+            wait = random.uniform(5, 15) * 60                                 # občasná dlhšia prestávka
+            print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
+        time.sleep(max(10, wait))
 
 
 if __name__ == "__main__":
