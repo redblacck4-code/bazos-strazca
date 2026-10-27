@@ -87,13 +87,27 @@ out = "\n".join([head, ""] + lines + ["", "Na úpravu (rozdiel 10 % a viac):"] +
 print("\n\n" + out)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ceny_report.txt"), "w", encoding="utf-8") as f:
     f.write(out + "\n")
-if os.getenv("TELEGRAM_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
-    chunk = ""
+tok = (os.getenv("TELEGRAM_TOKEN") or "").strip("'\" ")
+chat = (os.getenv("TELEGRAM_CHAT_ID") or "").strip("'\" ")
+if tok and chat:
+    chunks, chunk = [], ""
     for line in out.split("\n"):
-        if len(chunk) + len(line) > 3800:
-            b.send_telegram(b.esc(chunk), preview=False)
+        if len(chunk) + len(line) > 3000:
+            chunks.append(chunk)
             chunk = ""
         chunk += line + "\n"
-    if chunk.strip():
-        b.send_telegram(b.esc(chunk), preview=False)
-    print("\nPoslané aj do Telegramu.")
+    chunks.append(chunk)
+    ok = True
+    for c in chunks:
+        if not c.strip():
+            continue
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
+                              data={"chat_id": chat, "text": c}, timeout=20)
+            ok = ok and r.ok
+            if not r.ok:
+                print(f"\n[!] Telegram: {r.status_code} {r.text[:150]}")
+        except requests.RequestException as e:
+            ok = False
+            print(f"\n[!] Telegram: {e.__class__.__name__}")
+    print("\nPoslané aj do Telegramu." if ok else "\nDo Telegramu sa to neposlalo – výsledok je v ceny_report.txt.")

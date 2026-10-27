@@ -57,12 +57,12 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
       "Accept-Language": "sk-SK,sk;q=0.9"}
 
 # ---------------------------------------------------- bežné ceny (Bazoš, €)
-# Odhad ceny funkčného kusu v dobrom stave. Uprav podľa seba.
+# Odhad ceny funkčného kusu v dobrom stave. Uprav podľa seba. (overené prieskumom ceny.py 27.10.2026)
 # iPhone: model -> {GB: cena}
 IPHONE = {
     "12": {128: 160, 256: 190}, "12 mini": {128: 150, 256: 170},
     "12 pro": {128: 210, 256: 230, 512: 250}, "12 pro max": {128: 260, 256: 290, 512: 310},
-    "13": {128: 230, 256: 260, 512: 300}, "13 mini": {128: 200, 256: 240, 512: 270},
+    "13": {128: 230, 256: 260, 512: 300}, "13 mini": {128: 225, 256: 240, 512: 270},
     "13 pro": {128: 320, 256: 330, 512: 360, 1024: 400}, "13 pro max": {128: 380, 256: 400, 512: 430, 1024: 460},
     "14": {128: 300, 256: 330, 512: 360}, "14 plus": {128: 300, 256: 325, 512: 350},
     "14 pro": {128: 390, 256: 400, 512: 430, 1024: 460}, "14 pro max": {128: 440, 256: 460, 512: 500, 1024: 530},
@@ -73,7 +73,7 @@ IPHONE = {
     "17": {256: 760, 512: 860}, "air": {256: 700, 512: 800},
     "17 pro": {256: 950, 512: 1080}, "17 pro max": {256: 1080, 512: 1200},
     # iPhone 18 (jeseň 2026 – zatiaľ len Pro/Pro Max; nové v obchode 1489/1639 €)
-    "18 pro": {256: 1200, 512: 1400, 1024: 1750}, "18 pro max": {256: 1320, 512: 1520, 1024: 1880},
+    "18 pro": {256: 1270, 512: 1470, 1024: 1820}, "18 pro max": {256: 1460, 512: 1660, 1024: 2020},
 }
 # Ostatné: (regex na nadpis+popis, názov, cena). Prvá zhoda vyhráva – špecifickejšie hore.
 OTHER = [
@@ -107,35 +107,35 @@ OTHER = [
     (r"(?=.*\bdji\b).*mini\s*4\s*k", "DJI Mini 4K", 200),
     (r"(?=.*\bdji\b).*mini\s*3\s*pro", "DJI Mini 3 Pro", 400),
     (r"(?=.*\bdji\b).*mini\s*3\b", "DJI Mini 3", 280),
-    (r"macbook\s*air.*\bm5\b", "MacBook Air M5", 1000),          # nový v obchode od ~1288 €
-    (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 850),
-    (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 720),
-    (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 560),
-    (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 420),
+    (r"macbook\s*air.*\bm5\b", "MacBook Air M5", 1125),          # nový v obchode od ~1288 €
+    (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 940),
+    (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 780),
+    (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 630),
+    (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 450),
     (r"macbook\s*pro.*\bm5\s*(pro|max)\b", "MacBook Pro M5 Pro/Max", 1900),
-    (r"macbook\s*pro.*\bm5\b(?!\s*(pro|max))", "MacBook Pro 14 M5", 1350),
+    (r"macbook\s*pro.*\bm5\b(?!\s*(pro|max))", "MacBook Pro 14 M5", 1450),
     (r"macbook\s*pro.*\bm1\s*(pro|max)\b", "MacBook Pro M1 Pro/Max", 950),
     (r"macbook\s*pro.*\bm[234]\s*(pro|max)\b", "MacBook Pro M2–M4 Pro/Max", 1300),
     (r"macbook\s*pro.*\bm4\b(?!\s*(pro|max))", "MacBook Pro 14 M4", 1250),
-    (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 1000),
+    (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 900),
     (r"macbook\s*pro.*\bm2\b", "MacBook Pro 13 M2", 700),
     (r"macbook\s*pro.*\bm1\b", "MacBook Pro 13 M1", 580),
-    (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 800),
+    (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 680),
     (r"galaxy\s*s24\s*ultra|\bs24\s*ultra", "Galaxy S24 Ultra", 600),
     (r"galaxy\s*s23\s*ultra|\bs23\s*ultra", "Galaxy S23 Ultra", 400),
     (r"\bs25\s*(\+|plus)", "Galaxy S25+", 600), (r"\bs25\s*fe\b", "Galaxy S25 FE", 420), (r"(galaxy\s*)?\bs25\b", "Galaxy S25", 520),
-    (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 380),
+    (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 330),
     (r"\bs23\s*(\+|plus)", "Galaxy S23+", 330), (r"\bs23\s*fe\b", "Galaxy S23 FE", 220), (r"(galaxy\s*)?\bs23\b", "Galaxy S23", 260),
     (r"z\s*fold\s*7|fold\s*7", "Galaxy Z Fold 7", 900),
     (r"z\s*fold\s*6|fold\s*6", "Galaxy Z Fold 6", 600),
     (r"z\s*fold\s*5|fold\s*5", "Galaxy Z Fold 5", 450),
-    (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 650),
-    (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 450),
+    (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 560),
+    (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 370),
     (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 330),
     (r"pixel\s*9\s*pro", "Pixel 9 Pro", 550),
-    (r"xiaomi\s*15\s*t\s*pro", "Xiaomi 15T Pro", 450),
+    (r"xiaomi\s*15\s*t\s*pro", "Xiaomi 15T Pro", 400),
     (r"xiaomi\s*15\s*t\b", "Xiaomi 15T", 350),
-    (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 650),
+    (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 570),
     (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 300),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
@@ -148,18 +148,18 @@ OTHER = [
     (r"f[eē]nix\s*7\s*(x\s*)?pro", "Garmin Fenix 7 Pro", 450),
     (r"f[eē]nix\s*7\s*x", "Garmin Fenix 7X", 400),
     (r"f[eē]nix\s*7", "Garmin Fenix 7", 350),
-    (r"epix\s*pro", "Garmin Epix Pro", 550), (r"\bepix\b", "Garmin Epix 2", 380),
+    (r"epix\s*pro", "Garmin Epix Pro", 370), (r"\bepix\b", "Garmin Epix 2", 325),
     (r"forerunner\s*970", "Garmin Forerunner 970", 550), (r"forerunner\s*965", "Garmin Forerunner 965", 380),
-    (r"forerunner\s*955", "Garmin Forerunner 955", 280), (r"forerunner\s*(265|570)", "Garmin Forerunner 265/570", 260),
+    (r"forerunner\s*955", "Garmin Forerunner 955", 280), (r"forerunner\s*(265|570)", "Garmin Forerunner 265/570", 275),
     (r"forerunner\s*255", "Garmin Forerunner 255", 180),
-    (r"venu\s*(3|x1)", "Garmin Venu 3/X1", 260), (r"instinct\s*(2x|3)", "Garmin Instinct 2X/3", 220),
+    (r"venu\s*(3|x1)", "Garmin Venu 3/X1", 220), (r"instinct\s*(2x|3)", "Garmin Instinct 2X/3", 230),
     (r"airpods\s*pro\s*(2|3|ii)", "AirPods Pro 2/3", 120),
     (r"ipad\s*pro.*\bm[124]\b", "iPad Pro (M)", 550),
     (r"ipad\s*air.*\bm[123]\b", "iPad Air (M)", 380),
     (r"ps5\s*pro|playstation\s*5\s*pro", "PS5 Pro", 600),
     (r"rtx\s*4090", "RTX 4090", 1500), (r"rtx\s*4080", "RTX 4080", 800),
     (r"rtx\s*4070\s*ti", "RTX 4070 Ti", 550), (r"rtx\s*4070", "RTX 4070", 420),
-    (r"rtx\s*3080", "RTX 3080", 350),
+    (r"rtx\s*3080", "RTX 3080", 380),
 ]
 
 # Kúsky, ktoré vôbec neposielať
@@ -191,14 +191,14 @@ DAMAGE = [
 # Rozpoznávajú sa iba podľa NADPISU (v popise býva "+ 2 ovládače", "+ hry" a pod.)
 CONSOLE_VALUES = {
     "dualsense_edge": ("DualSense Edge", 150),
-    "dualsense": ("Ovládač DualSense", 45),
+    "dualsense": ("Ovládač DualSense", 48),
     "ps5_pro": ("PS5 Pro", 650),
-    "ps5_slim_digital": ("PS5 Slim Digital", 400),
-    "ps5_slim": ("PS5 Slim s mechanikou", 450),
-    "ps5_digital": ("PS5 Digital", 350),
-    "ps5": ("PS5 s mechanikou", 400),
-    "deck_oled_1tb": ("Steam Deck OLED 1TB", 560),
-    "deck_oled": ("Steam Deck OLED 512GB", 480),
+    "ps5_slim_digital": ("PS5 Slim Digital", 425),
+    "ps5_slim": ("PS5 Slim s mechanikou", 475),
+    "ps5_digital": ("PS5 Digital", 375),
+    "ps5": ("PS5 s mechanikou", 425),
+    "deck_oled_1tb": ("Steam Deck OLED 1TB", 615),
+    "deck_oled": ("Steam Deck OLED 512GB", 515),
     "deck_lcd_512": ("Steam Deck LCD 512GB", 340),
     "deck_lcd": ("Steam Deck LCD", 300),
     "switch2": ("Nintendo Switch 2", 400),
