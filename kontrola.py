@@ -19,7 +19,6 @@ SAMPLES = {
     "Samsung / Google / Xiaomi": ["Samsung Galaxy S24 Ultra 256GB", "Samsung Galaxy S23 128GB", "Galaxy Z Fold 5", "Google Pixel 9 Pro", "Xiaomi 15T"],
     "Hodinky / AirPods / iPad": ["Apple Watch Ultra 2", "Apple Watch Series 9 45mm", "AirPods Pro 2", "iPad Air M2", "Garmin Fenix 7"],
     "Konzoly": ["PS5 Slim s mechanikou", "PS5 Pro", "Xbox Series X 1TB", "Steam Deck OLED 512GB", "Nintendo Switch OLED", "Ovládač DualSense"],
-    "Grafiky": ["RTX 4070 Super", "RTX 5080", "RTX 3080", "AMD RX 7900 XT", "RX 9070 XT"],
     "Drony DJI": ["DJI Mini 4 Pro", "DJI Air 3", "DJI Avata 2", "DJI Mavic 3 Classic", "DJI Neo"],
 }
 SHOULD_SKIP = ["Kryt na iPhone 15 Pro", "Hra na PS5 FIFA 25", "Xbox Series S 512GB", "Batéria DJI Mini 3", "Ovládač Xbox Series X"]

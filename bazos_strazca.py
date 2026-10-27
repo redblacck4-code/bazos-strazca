@@ -86,12 +86,6 @@ OTHER = [
     (r"\bimac\b.*\bm4\b", "iMac 24 M4", 1000),
     (r"\bimac\b.*\bm3\b", "iMac 24 M3", 850),
     (r"\bimac\b.*\bm1\b", "iMac 24 M1", 550),
-    # --- grafické karty RTX 50 a AMD RX ---
-    (r"rtx\s*5090", "RTX 5090", 2000), (r"rtx\s*5080", "RTX 5080", 900),
-    (r"rtx\s*5070\s*ti", "RTX 5070 Ti", 650), (r"rtx\s*5070", "RTX 5070", 450),
-    (r"rx\s*9070\s*xt", "RX 9070 XT", 580), (r"rx\s*9070", "RX 9070", 500),
-    (r"rx\s*7900\s*xtx", "RX 7900 XTX", 750), (r"rx\s*7900\s*xt\b", "RX 7900 XT", 550),
-    (r"rx\s*7900\s*gre", "RX 7900 GRE", 450), (r"rx\s*7800\s*xt", "RX 7800 XT", 380),
     # --- drony DJI ---
     (r"(?=.*\bdji\b).*avata\s*2", "DJI Avata 2", 650),
     (r"(?=.*\bdji\b).*avata", "DJI Avata", 450),
@@ -157,9 +151,6 @@ OTHER = [
     (r"ipad\s*pro.*\bm[124]\b", "iPad Pro (M)", 550),
     (r"ipad\s*air.*\bm[123]\b", "iPad Air (M)", 380),
     (r"ps5\s*pro|playstation\s*5\s*pro", "PS5 Pro", 600),
-    (r"rtx\s*4090", "RTX 4090", 1500), (r"rtx\s*4080", "RTX 4080", 800),
-    (r"rtx\s*4070\s*ti", "RTX 4070 Ti", 550), (r"rtx\s*4070", "RTX 4070", 420),
-    (r"rtx\s*3080", "RTX 3080", 380),
 ]
 
 # Kúsky, ktoré vôbec neposielať
@@ -224,8 +215,7 @@ BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5", "xbox series x"]
 # Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
-EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
-                  ("pc", "rx 7800"), ("foto", "dji"), ("pc", "dji")]
+EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("foto", "dji"), ("pc", "dji")]
 # Príslušenstvo – v NADPISE znamená, že to nie je samotné zariadenie
 ACCESSORY = re.compile(
     # nadpis ZAČÍNA príslušenstvom ("Batéria DJI Mini 3", "Stojan na Mac mini")

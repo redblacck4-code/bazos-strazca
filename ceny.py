@@ -20,8 +20,6 @@ Q += [("mobil", q, 2) for q in ("apple watch ultra", "apple watch series", "appl
 Q += [("pc", q, 1) for q in ("ipad pro m", "ipad air m")]
 Q += [("pc", q, 2) for q in ("ps5", "playstation 5", "xbox series x", "steam deck", "nintendo switch oled",
                                "nintendo switch 2", "dualsense")]
-Q += [("pc", q, 2) for q in ("rtx 3080", "rtx 4070", "rtx 4080", "rtx 4090", "rtx 5070", "rtx 5080", "rtx 5090",
-                               "rx 7800", "rx 7900", "rx 9070")]
 Q += [("foto", "dji", 2), ("pc", "dji", 1)]
 
 
