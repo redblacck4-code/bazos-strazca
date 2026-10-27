@@ -1,13 +1,14 @@
 """Prieskum cien na Bazoši: python ceny.py
 Pre každý model zistí medián inzerovaných cien (celé SK, len funkčné kusy) a porovná ho s cenou v bote.
-Výsledok uloží do ceny_report.txt a pošle do Telegramu (ak je nastavený). Bot počas behu radšej zastav."""
-import os, re, sys, time, statistics, requests
+Výsledok uloží do ceny_report.txt a pošle do Telegramu (ak je nastavený). Bot počas behu radšej zastav.
+Beží pomaly (~15 min), aby nás Bazoš nezablokoval."""
+import os, re, sys, time, random, statistics, requests
 import bazos_strazca as b
 
 # (sekcia Bazoša, hľadaný text, počet strán po 20)
 Q = []
 for n in range(12, 19):
-    Q.append(("mobil", f"iphone {n}", 3))
+    Q.append(("mobil", f"iphone {n}", 2))
 Q += [("mobil", "iphone 16e", 1), ("mobil", "iphone air", 1)]
 Q += [("pc", f"macbook air m{n}", 2) for n in range(1, 6)]
 Q += [("pc", f"macbook pro m{n}", 2) for n in range(1, 6)]
@@ -21,7 +22,7 @@ Q += [("pc", q, 2) for q in ("ps5", "playstation 5", "xbox series x", "steam dec
                                "nintendo switch 2", "dualsense")]
 Q += [("pc", q, 2) for q in ("rtx 3080", "rtx 4070", "rtx 4080", "rtx 4090", "rtx 5070", "rtx 5080", "rtx 5090",
                                "rx 7800", "rx 7900", "rx 9070")]
-Q += [("foto", "dji", 3), ("pc", "dji", 1)]
+Q += [("foto", "dji", 2), ("pc", "dji", 1)]
 
 
 def bad(it, name, value):
@@ -42,11 +43,15 @@ for i, (sec, q, npages) in enumerate(Q, 1):
     for p in range(npages):
         off = f"{p * 20}/" if p else ""
         base = f"https://{sec}.bazos.sk"
-        html = b.fetch(f"{base}/{off}?hledat={requests.utils.quote(q)}&{b.LOC}cenaod=40&cenado=")
+        url = f"{base}/{off}?hledat={requests.utils.quote(q)}&{b.LOC}cenaod=40&cenado="
+        time.sleep(random.uniform(4, 7))                 # pomaly, nech nás Bazoš nebrzdí
+        html = b.fetch(url)
+        if not html and time.time() < b._blocked_until:
+            wait = int(b._blocked_until - time.time()) + 5
+            print(f"\n[!] Bazoš brzdí – čakám {wait // 60} min a pokračujem…")
+            time.sleep(wait)
+            html = b.fetch(url)
         if not html:
-            if time.time() < b._blocked_until:
-                print("\n[!] Bazoš brzdí – skús to neskôr (a bez bežiaceho bota).")
-                sys.exit(1)
             break
         items = b.parse_list(html, base)
         for it in items:
