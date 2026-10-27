@@ -20,8 +20,8 @@ PSC = "97101"          # domov (Prievidza)
 RADIUS_KM = 90         # (nepoužíva sa – hľadá sa po celom SK a filtruje podľa PSČ)
 LOC = "hlokalita=&humkreis=&"   # celé Slovensko; výber oblastí robí funkcia region()
 # Mimo domácej zóny (REGIONS):
-BA_COST = int(os.getenv("BA_COST", "15"))        # elektronika z BA kraja – kúpia známi a pošlú (€)
-KE_COST = int(os.getenv("KE_COST", "15"))        # elektronika len z mesta Košice – kúpi kamarát a pošle (€)
+BA_COST = int(os.getenv("BA_COST", "0"))          # elektronika z BA kraja – kúpia známi a pošlú (€)
+KE_COST = int(os.getenv("KE_COST", "0"))          # elektronika len z mesta Košice – kúpi kamarát a pošle (€)
 POST_COST = int(os.getenv("POST_COST", "10"))    # elektronika zo zvyšku západu/stredu – poštou/Packetou (€)
 CAR_BA_COST = 40       # auto z BA kraja – cesta vlakom tam, autom späť (€)
 CAR_FAR_COST = 45      # auto zo zvyšku západu/stredu (€)
@@ -72,6 +72,8 @@ IPHONE = {
     "16 pro": {128: 650, 256: 700, 512: 760, 1024: 820}, "16 pro max": {256: 770, 512: 830, 1024: 900},
     "17": {256: 760, 512: 860}, "air": {256: 700, 512: 800},
     "17 pro": {256: 950, 512: 1080}, "17 pro max": {256: 1080, 512: 1200},
+    # iPhone 18 (jeseň 2026 – zatiaľ len Pro/Pro Max; nové v obchode 1489/1639 €)
+    "18 pro": {256: 1200, 512: 1400, 1024: 1750}, "18 pro max": {256: 1320, 512: 1520, 1024: 1880},
 }
 # Ostatné: (regex na nadpis+popis, názov, cena). Prvá zhoda vyhráva – špecifickejšie hore.
 OTHER = [
@@ -105,10 +107,13 @@ OTHER = [
     (r"(?=.*\bdji\b).*mini\s*4\s*k", "DJI Mini 4K", 200),
     (r"(?=.*\bdji\b).*mini\s*3\s*pro", "DJI Mini 3 Pro", 400),
     (r"(?=.*\bdji\b).*mini\s*3\b", "DJI Mini 3", 280),
+    (r"macbook\s*air.*\bm5\b", "MacBook Air M5", 1000),          # nový v obchode od ~1288 €
     (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 850),
     (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 720),
     (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 560),
     (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 420),
+    (r"macbook\s*pro.*\bm5\s*(pro|max)\b", "MacBook Pro M5 Pro/Max", 1900),
+    (r"macbook\s*pro.*\bm5\b(?!\s*(pro|max))", "MacBook Pro 14 M5", 1350),
     (r"macbook\s*pro.*\bm1\s*(pro|max)\b", "MacBook Pro M1 Pro/Max", 950),
     (r"macbook\s*pro.*\bm[234]\s*(pro|max)\b", "MacBook Pro M2–M4 Pro/Max", 1300),
     (r"macbook\s*pro.*\bm4\b(?!\s*(pro|max))", "MacBook Pro 14 M4", 1250),
@@ -279,7 +284,7 @@ def required_profit(value):
     return min(MIN_PROFIT, max(15, round(value * 0.3)))
 
 
-MODEL_RE = re.compile(r"iph?one\s*(1[2-7])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
+MODEL_RE = re.compile(r"iph?one\s*(1[2-8])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
 GB_RE = re.compile(r"\b(64|128|256|512)\s?gb|\b(1)\s?tb", re.I)
 BAT_RE = re.compile(r"(\d{2,3})\s?%")
 
@@ -709,8 +714,8 @@ VINTED_EVERY = int(os.getenv("VINTED_EVERY", "15"))   # každý N-tý beh (pri i
 VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/CZ/PL) €
 VINTED_BASE = "https://www.vinted.sk"
 VINTED_QUERIES = [
-    ("iphone 12 pro", 260), ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700),
-    ("macbook air", 650), ("macbook pro", 1100), ("playstation 5", 420),
+    ("iphone 12 pro", 260), ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700), ("iphone 18 pro", 1100),
+    ("macbook air", 800), ("macbook pro", 1100), ("playstation 5", 420),
 ]
 _vinted_session = requests.Session()
 _vinted_blocked_until = 0.0
@@ -1000,9 +1005,9 @@ def main():
             if ev:
                 ev["profit"] -= travel
                 if mode == "znami":
-                    ev["notes"].append(f"🤝 kúpia známi v BA a pošlú (−{travel} €)")
+                    ev["notes"].append("🤝 kúpia známi v BA" + (f" (−{travel} €)" if travel else ""))
                 elif mode == "kosice":
-                    ev["notes"].append(f"🤝 kúpi kamarát v Košiciach a pošle (−{travel} €)")
+                    ev["notes"].append("🤝 kúpi kamarát v Košiciach" + (f" (−{travel} €)" if travel else ""))
                 elif mode == "posta":
                     ev["notes"].append(f"📦 poslať poštou/Packetou na dobierku (−{travel} €)")
                     if re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
