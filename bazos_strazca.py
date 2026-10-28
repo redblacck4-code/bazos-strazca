@@ -709,6 +709,8 @@ VINTED_QUERIES = [
     ("iphone", 1200, 150),
     ("macbook", 1500, 250),
     ("playstation 5", 450, 150),
+    ("ps5", 450, 150),             # veľa ľudí píše len "PS5" / "Ps 5"
+    ("ps 5", 450, 150),
 ]
 _vinted_session = requests.Session()
 _vinted_blocked_until = 0.0
@@ -764,7 +766,7 @@ def _vinted_search_html(q, max_price, min_price=0):
     global _vinted_blocked_until
     if time.time() < _vinted_blocked_until:
         return None
-    time.sleep(2 + random.random() * 2)
+    time.sleep(0.8 + random.random() * 0.8)
     url = (f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
            + (f"&price_from={min_price}" if min_price else ""))
     r = _vinted_session.get(url, headers=UA, timeout=30)
@@ -925,14 +927,12 @@ def process_vinted(state):
             ev["notes"].append(f"⭐ predajca: {reviews} recenzií" if reviews is not None
                                else "⚠️ počet recenzií sa nezistil – pozri profil")
             cands.append((ev["profit"], price, prev, url, ev))
-    cands.sort(key=lambda c: -c[0])
-    for profit, price, prev, url, ev in cands[:VINTED_MAX_ALERTS]:
-        drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
-        msg = (f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
-               f"Zisk ~<b>{profit} €</b> (bežne ~{ev['value']} €)\n"
-               f"ℹ️ {esc('; '.join(ev['notes']))}\n"
-               f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
-        send_telegram(msg)
+            if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
+                drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
+                send_telegram(f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
+                              f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
+                              f"ℹ️ {esc('; '.join(ev['notes']))}\n"
+                              f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
@@ -941,7 +941,8 @@ _cycle = 0
 _last_targeted = 0.0
 _last_vinted = 0.0
 TARGETED_MIN = int(os.getenv("TARGETED_MIN", "10"))                       # cielené hľadania každých X min
-VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # Vinted každých X min
+VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # (staré nastavenie, nepoužíva sa)
+VINTED_SEC = int(os.getenv("VINTED_SEC", "30"))                            # Vinted každých X sekúnd
 
 
 def main():
@@ -1022,7 +1023,7 @@ def main():
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
-    if VINTED_ON and time.time() - _last_vinted >= VINTED_MIN * 60:
+    if VINTED_ON and time.time() - _last_vinted >= VINTED_SEC:
         _last_vinted = time.time()
         try:
             alerts += process_vinted(state)
@@ -1077,7 +1078,26 @@ def loop(interval):
         if random.random() < BREAK_CHANCE:
             wait = random.uniform(2, 4) * 60                                 # občasná dlhšia prestávka
             print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
-        time.sleep(max(10, wait))
+        end = time.time() + max(10, wait)
+        while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
+            vinted_tick()
+            time.sleep(max(1, min(5, end - time.time())))
+
+
+def vinted_tick():
+    """Rýchla kontrola Vinted mimo hlavného behu (každých VINTED_SEC sekúnd)."""
+    global _last_vinted
+    if not VINTED_ON or time.time() - _last_vinted < VINTED_SEC or quiet_seconds():
+        return
+    _last_vinted = time.time()
+    try:
+        state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+        n = process_vinted(state)
+        STATE_FILE.write_text(json.dumps(state))
+        if n:
+            print(f"{time.strftime('%d.%m. %H:%M')} Vinted: upozornení {n}")
+    except Exception as e:
+        print(f"[!] Vinted chyba: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
