@@ -45,8 +45,8 @@ for loc in ["Prievidza 971 01", "Nitra 949 01", "Trenčín 911 01", "Bratislava 
     print(f"  {OK if r else '⛔'} {loc:20} → " + (f"{how[r[3]]}, náklady {r[1]} €" if r else "vynechá"))
 
 print("\n=== VINTED hľadá ===")
-for q, mx in b.VINTED_QUERIES:
-    print(f"  • {q} (do {mx} €)")
+for q, mx, *mn in b.VINTED_QUERIES:
+    print(f"  • {q} ({mn[0] if mn else 0}–{mx} €)")
 
 if live:
     print("\n=== ŽIVÝ TEST ===")

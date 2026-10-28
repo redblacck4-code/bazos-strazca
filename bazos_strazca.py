@@ -703,9 +703,12 @@ VINTED_ON = os.getenv("VINTED_ON", "1") == "1"
 VINTED_EVERY = int(os.getenv("VINTED_EVERY", "15"))   # každý N-tý beh (pri intervale 120 s = ~30 min)
 VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/CZ/PL) €
 VINTED_BASE = "https://www.vinted.sk"
+# (hľadanie, cena do, cena od) – široké hľadania: všetky iPhony naraz, cena od odfiltruje kryty a príslušenstvo,
+# takže každú minútu stačia 3 požiadavky a nový inzerát sa nájde hneď v najbližšom prechode
 VINTED_QUERIES = [
-    ("iphone 12 pro", 260), ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700), ("iphone 18 pro", 1100),
-    ("macbook air", 800), ("macbook pro", 1100), ("playstation 5", 420),
+    ("iphone", 1200, 150),
+    ("macbook", 1500, 250),
+    ("playstation 5", 450, 150),
 ]
 _vinted_session = requests.Session()
 _vinted_blocked_until = 0.0
@@ -756,13 +759,14 @@ VINTED_ACC = re.compile(
     r"|\b(etui|obudowa|case|pokrowiec|obal|kryt)\s+(na|do|pre|for)\b", re.I)
 
 
-def _vinted_search_html(q, max_price):
+def _vinted_search_html(q, max_price, min_price=0):
     """Katalóg Vinted ako HTML (rovnako ako v prehliadači). Vráti zoznam položiek ako z API."""
     global _vinted_blocked_until
     if time.time() < _vinted_blocked_until:
         return None
     time.sleep(2 + random.random() * 2)
-    url = f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
+    url = (f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
+           + (f"&price_from={min_price}" if min_price else ""))
     r = _vinted_session.get(url, headers=UA, timeout=30)
     if r.status_code in (403, 429, 503):
         _vinted_blocked_until = time.time() + 3600
@@ -853,7 +857,7 @@ VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Do
 
 
 VINTED_PER_PASS = int(os.getenv("VINTED_PER_PASS", "2"))   # koľko ostatných hľadaní na prechod (striedajú sa)
-VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "macbook"), re.I)   # tieto sa hľadajú pri každom prechode
+VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "."), re.I)   # "." = všetky hľadania pri každom prechode   # tieto sa hľadajú pri každom prechode
 _vinted_pos = 0
 
 
@@ -867,8 +871,8 @@ def process_vinted(state):
     n = min(VINTED_PER_PASS, len(rest))
     batch = prio + [rest[(_vinted_pos + i) % len(rest)] for i in range(n)] if rest else prio
     _vinted_pos = (_vinted_pos + n) % len(rest) if rest else 0
-    for q, max_price in batch:
-        data = _vinted_search_html(q, max_price)
+    for q, max_price, *mn in batch:
+        data = _vinted_search_html(q, max_price, mn[0] if mn else 0)
         if data is None:
             if time.time() < _vinted_blocked_until:
                 break
@@ -1032,7 +1036,7 @@ def main():
     print(f"{time.strftime('%d.%m. %H:%M')} Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}{blocked}")
 
 
-BREAK_CHANCE = float(os.getenv("BREAK_CHANCE", "0.03"))   # ~raz za 30 behov prestávka 5–15 min
+BREAK_CHANCE = float(os.getenv("BREAK_CHANCE", "0"))      # prestávky vypnuté – dobré ponuky miznú do pár minút
 QUIET_FROM = int(os.getenv("QUIET_FROM", "22"))   # nočný kľud od (hodina)
 QUIET_TO = int(os.getenv("QUIET_TO", "5"))        # do (hodina)
 
@@ -1069,9 +1073,9 @@ def loop(interval):
         if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
             _comp_cache.clear()
             last_cache_clear = time.time()
-        wait = interval * random.uniform(0.75, 1.5) - (time.time() - start)   # nepravidelný rytmus
+        wait = interval * random.uniform(0.8, 1.2) - (time.time() - start)   # nepravidelný rytmus
         if random.random() < BREAK_CHANCE:
-            wait = random.uniform(5, 15) * 60                                 # občasná dlhšia prestávka
+            wait = random.uniform(2, 4) * 60                                 # občasná dlhšia prestávka
             print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
         time.sleep(max(10, wait))
 
