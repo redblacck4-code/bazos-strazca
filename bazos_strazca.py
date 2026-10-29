@@ -854,7 +854,13 @@ VINTED_SCAM = re.compile(
     r"whats\s*app|telegram|signal|viber|\+?\d{3}[\s-]?\d{3}[\s-]?\d{3}|@gmail|@seznam|@azet|@wp\.pl|@o2\.pl|"
     r"kontaktuj\w*\s+(ma|mě|mnie)|napíšte\s+(mi\s+)?(na|súkrom)|pisz\s+(na|prywat)|priv\b|\bpv\b|"
     r"nie\s+przez\s+kup|nie\s+kupuj|neklikajte\s+kúpiť|nekupujte\s+cez|cez\s+kúpiť\s+teraz\s+nie|"
-    r"zarezerwuj|rezervuj\w*\s+(si\s+)?pre\s+mňa|dla\s+ciebie", re.I)
+    r"zarezerwuj|rezervuj\w*\s+(si\s+)?pre\s+mňa|dla\s+ciebie|"
+    # predaj cez inú platformu / mimo tlačidla "Kúpiť"
+    r"allegro|\bolx\b|sbazar|bazoš|bazos|marketplace|"
+    r"buy\s*it\s*now|kup\s*teraz|kúpiť\s*teraz|koupit\s*hned|"
+    r"nie\s+sprzedaj\w*\s+przez|nepred[aá]v\w*\s+cez|neprod[aá]v\w*\s+p[rř]es|"
+    r"odbi[oó]r\w*\s+osobist|osobn[yý]\s+odber|osobn[ií]\s+odb[eě]r|odbi[oó]r\s+w\s+|"
+    r"firmow\w*\s+kont|firemn\w*\s+[uú][cč]et", re.I)
 VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Dostateczny)", re.I)
 
 
