@@ -591,25 +591,87 @@ def car_km(text):
     return int(m.group(3)) * 1000
 
 
-def car_comps(query, year, own_id):
-    """Ceny podobných áut (rok ±1) z celého Slovenska; medián a počet."""
-    key = (query, year)
-    if key not in _comp_cache:
-        prices = []
-        for off in ("", "20/", "40/"):
+CAR_KM_PCT = 0.012          # ~1,2 % ceny za každých 10 000 km rozdielu
+CAR_YEAR_PCT = 0.07         # ~7 % ceny za rok rozdielu
+FUEL_RE = [("diesel", re.compile(r"diesel|nafta|\btdi\b|\bcrdi\b|\bdci\b|\bhdi\b|\bcdti\b|\bd-4d\b|\bdtec\b|\bskyactiv-d\b", re.I)),
+           ("hybrid", re.compile(r"hybrid", re.I)),
+           ("lpg", re.compile(r"\blpg\b|\bcng\b", re.I)),
+           ("benzín", re.compile(r"benz[ií]n|\btsi\b|\btfsi\b|\bmpi\b|\bgdi\b|\bvvt-?i\b|ecoboost|\bsce\b|\btce\b", re.I))]
+AUTO_RE = re.compile(r"automat|\bdsg\b|\bcvt\b|\bat\b(?=\W)|tiptronic|s[\s-]?tronic", re.I)
+MANUAL_RE = re.compile(r"manu[aá]l", re.I)
+COMBI_RE = re.compile(r"kombi|combi|variant|\bsw\b|touring|estate|sportswagon|sports\s*tourer|tourer|break|avant", re.I)
+KW_RE = re.compile(r"(\d{2,3})\s?kw", re.I)
+
+
+def car_attrs(text):
+    """palivo, prevodovka, karoséria a výkon z textu inzerátu (None = neuvedené)."""
+    fuel = next((f for f, rx in FUEL_RE if rx.search(text)), None)
+    gear = "automat" if AUTO_RE.search(text) else ("manuál" if MANUAL_RE.search(text) else None)
+    body = "kombi" if COMBI_RE.search(text) else None
+    kw = KW_RE.search(text)
+    return {"fuel": fuel, "gear": gear, "body": body, "kw": int(kw.group(1)) if kw else None}
+
+
+def _car_pool(query):
+    """Všetky porovnateľné inzeráty daného modelu (cache 1 h)."""
+    if query not in _comp_cache:
+        pool = []
+        for off in ("", "20/", "40/", "60/"):
             html = fetch(f"https://auto.bazos.sk/{off}?hledat={requests.utils.quote(query)}&cenaod=500&cenado=60000")
             time.sleep(1)
             if not html:
                 break
-            for c in parse_list(html, "https://auto.bazos.sk"):
+            items = parse_list(html, "https://auto.bazos.sk")
+            for c in items:
                 txt = f"{c['title']} {c['snippet']}"
                 y = car_year(txt)
-                if c["id"] == own_id or not y or abs(y - year) > 1 or CAR_BAD.search(txt) or c["price"] < 500:
+                if not y or CAR_BAD.search(txt) or c["price"] < 500:
                     continue
-                prices.append(c["price"])
-        prices.sort()
-        _comp_cache[key] = (prices[len(prices) // 2] if len(prices) >= 5 else None, len(prices))
-    return _comp_cache[key]
+                pool.append({"id": c["id"], "price": c["price"], "year": y, "km": car_km(txt), **car_attrs(txt)})
+            if len(items) < 20:
+                break
+        _comp_cache[query] = pool
+    return _comp_cache[query]
+
+
+def car_value(query, year, km, attrs, own_id):
+    """Odhad trhovej ceny auta: podobné inzeráty (rok ±1, rovnaké palivo/prevodovka/karoséria/výkon),
+    každý prepočítaný na rovnaký rok a km. Vráti (hodnota, počet, popis porovnania) alebo (None, n, "")."""
+    pool = [c for c in _car_pool(query) if c["id"] != own_id and abs(c["year"] - year) <= 1]
+    used = []
+
+    def same(c, keys):
+        for k in keys:
+            if k == "kw":
+                if attrs["kw"] and c["kw"] and abs(c["kw"] - attrs["kw"]) > 0.25 * attrs["kw"]:
+                    return False
+            elif attrs[k] and c[k] and attrs[k] != c[k]:
+                return False
+        return True
+
+    levels = [("fuel", "gear", "body", "kw"), ("fuel", "gear", "body"), ("fuel", "gear"), ("fuel",), ()]
+    for keys in levels:                                   # od najprísnejšieho po voľnejšie porovnanie
+        sel = [c for c in pool if same(c, keys)]
+        if len(sel) >= 5:
+            used = keys
+            break
+    else:
+        return None, len(pool), ""
+    adj, with_km = [], 0
+    for c in sel:
+        f = 1 + CAR_YEAR_PCT * (year - c["year"])         # novší ročník = drahší
+        if km and c["km"]:
+            f *= 1 + CAR_KM_PCT * (c["km"] - km) / 10000  # viac km ako porovnávané = lacnejší
+            with_km += 1
+        adj.append(c["price"] * max(0.6, min(1.4, f)))
+    adj.sort()
+    value = round(adj[len(adj) // 2] / 50) * 50
+    if km and with_km < len(sel) / 2:
+        return None, len(sel), ""                          # km nevieme poriadne porovnať
+    names = {"fuel": "palivo", "gear": "prevodovka", "body": "karoséria", "kw": "výkon"}
+    desc = f"{len(sel)} podobných ({year}±1" + (", " + ", ".join(names[k] for k in used) if used else "") + \
+           (f", prepočítané na {km // 1000} tis. km" if km and with_km else "") + ")"
+    return value, len(sel), desc
 
 
 def car_seller_message(it, name, year, km, text):
@@ -666,17 +728,23 @@ def process_cars(state):
             km = car_km(full)
             if km and km > CAR_MAX_KM:
                 continue
-            median, n = car_comps(mdl[0], year, it["id"])
+            if not km:
+                continue                           # bez km sa auto nedá férovo porovnať
+            attrs = car_attrs(full)
+            median, n, desc = car_value(mdl[0], year, km, attrs, it["id"])
             if not median or it["price"] > 0.85 * median:
                 continue
-            profit = round(median * CAR_SELL_FACTOR - it["price"] - CAR_PREP_COST - travel)
+            sell = CAR_SELL_FACTOR - (0.05 if km > 220_000 else 0)   # vysoké km sa predávajú horšie
+            profit = round(median * sell - it["price"] - CAR_PREP_COST - travel)
             if profit < CAR_MIN_PROFIT:
                 continue
-            notes = [f"porovnané s {n} inzerátmi ({year}±1)", f"príprava −{CAR_PREP_COST} €"]
+            spec = ", ".join(x for x in (attrs["fuel"], attrs["gear"], attrs["body"],
+                                         f"{attrs['kw']} kW" if attrs["kw"] else None) if x)
+            notes = [desc, f"príprava −{CAR_PREP_COST} €"] + ([spec] if spec else [])
+            if km > 220_000:
+                notes.append("vysoké km – predaj pomalší (−5 %)")
             if travel:
                 notes.append(f"{'🤝 BA – ' if mode == 'znami' else 'cesta: '}{area} (−{travel} €)")
-            if not km:
-                notes.append("km neuvedené")
             if it["price"] < 0.55 * median:
                 notes.append("⚠️ podozrivo lacné – over VIN, nikdy neplať zálohu vopred")
             drop = f" (zlacnené z {prev} €)" if prev else ""
