@@ -13,8 +13,7 @@ Q += [("mobil", "iphone 16e", 1), ("mobil", "iphone air", 1)]
 Q += [("pc", f"macbook air m{n}", 2) for n in range(1, 6)]
 Q += [("pc", f"macbook pro m{n}", 2) for n in range(1, 6)]
 Q += [("pc", "mac mini", 2), ("pc", "imac m", 1)]
-Q += [("mobil", q, 2) for q in ("galaxy s23", "galaxy s24", "galaxy s25", "galaxy z fold", "galaxy z flip",
-                                  "pixel 9 pro", "xiaomi 15t")]
+Q += [("mobil", q, 2) for q in ("galaxy s23", "galaxy s24", "galaxy s25", "galaxy z fold", "galaxy z flip")]
 Q += [("mobil", q, 2) for q in ("apple watch ultra", "apple watch series", "apple watch se", "airpods pro",
                                   "garmin fenix", "garmin epix", "garmin forerunner", "garmin venu", "garmin instinct")]
 Q += [("pc", q, 1) for q in ("ipad pro m", "ipad air m")]
