@@ -20,8 +20,8 @@ PSC = "97101"          # domov (Prievidza)
 RADIUS_KM = 90         # (nepoužíva sa – hľadá sa po celom SK a filtruje podľa PSČ)
 LOC = "hlokalita=&humkreis=&"   # celé Slovensko; výber oblastí robí funkcia region()
 # Mimo domácej zóny (REGIONS):
-BA_COST = int(os.getenv("BA_COST", "15"))        # elektronika z BA kraja – kúpia známi a pošlú (€)
-KE_COST = int(os.getenv("KE_COST", "15"))        # elektronika len z mesta Košice – kúpi kamarát a pošle (€)
+BA_COST = int(os.getenv("BA_COST", "0"))          # elektronika z BA kraja – kúpia známi a pošlú (€)
+KE_COST = int(os.getenv("KE_COST", "0"))          # elektronika len z mesta Košice – kúpi kamarát a pošle (€)
 POST_COST = int(os.getenv("POST_COST", "10"))    # elektronika zo zvyšku západu/stredu – poštou/Packetou (€)
 CAR_BA_COST = 40       # auto z BA kraja – cesta vlakom tam, autom späť (€)
 CAR_FAR_COST = 45      # auto zo zvyšku západu/stredu (€)
@@ -57,39 +57,35 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
       "Accept-Language": "sk-SK,sk;q=0.9"}
 
 # ---------------------------------------------------- bežné ceny (Bazoš, €)
-# Odhad ceny funkčného kusu v dobrom stave. Uprav podľa seba.
+# Odhad ceny funkčného kusu v dobrom stave. Uprav podľa seba. (overené prieskumom ceny.py 2.11.2026)
 # iPhone: model -> {GB: cena}
 IPHONE = {
     "12": {128: 160, 256: 190}, "12 mini": {128: 150, 256: 170},
     "12 pro": {128: 210, 256: 230, 512: 250}, "12 pro max": {128: 260, 256: 290, 512: 310},
-    "13": {128: 230, 256: 260, 512: 300}, "13 mini": {128: 200, 256: 240, 512: 270},
+    "13": {128: 230, 256: 240, 512: 280}, "13 mini": {128: 240, 256: 255, 512: 280},
     "13 pro": {128: 320, 256: 330, 512: 360, 1024: 400}, "13 pro max": {128: 380, 256: 400, 512: 430, 1024: 460},
     "14": {128: 300, 256: 330, 512: 360}, "14 plus": {128: 300, 256: 325, 512: 350},
     "14 pro": {128: 390, 256: 400, 512: 430, 1024: 460}, "14 pro max": {128: 440, 256: 460, 512: 500, 1024: 530},
     "15": {128: 390, 256: 420, 512: 450}, "15 plus": {128: 440, 256: 480, 512: 510},
-    "15 pro": {128: 510, 256: 550, 512: 590, 1024: 630}, "15 pro max": {256: 610, 512: 660, 1024: 700},
+    "15 pro": {128: 510, 256: 585, 512: 620, 1024: 630}, "15 pro max": {256: 610, 512: 660, 1024: 700},
     "16e": {128: 420, 256: 470}, "16": {128: 550, 256: 600, 512: 650}, "16 plus": {128: 590, 256: 640, 512: 690},
     "16 pro": {128: 650, 256: 700, 512: 760, 1024: 820}, "16 pro max": {256: 770, 512: 830, 1024: 900},
     "17": {256: 760, 512: 860}, "air": {256: 700, 512: 800},
     "17 pro": {256: 950, 512: 1080}, "17 pro max": {256: 1080, 512: 1200},
+    # iPhone 18 (jeseň 2026 – zatiaľ len Pro/Pro Max; nové v obchode 1489/1639 €)
+    "18 pro": {256: 1270, 512: 1470, 1024: 1820}, "18 pro max": {256: 1460, 512: 1660, 1024: 2020},
 }
 # Ostatné: (regex na nadpis+popis, názov, cena). Prvá zhoda vyhráva – špecifickejšie hore.
 OTHER = [
     # --- Mac mini / iMac (iba Apple Silicon M1–M4) ---
     (r"mac\s*mini.*\bm4\s*pro", "Mac mini M4 Pro", 950),
-    (r"mac\s*mini.*\bm4\b", "Mac mini M4", 500),
+    (r"mac\s*mini.*\bm4\b", "Mac mini M4", 600),
     (r"mac\s*mini.*\bm2\s*pro", "Mac mini M2 Pro", 650),
     (r"mac\s*mini.*\bm2\b", "Mac mini M2", 400),
     (r"mac\s*mini.*\bm1\b", "Mac mini M1", 300),
     (r"\bimac\b.*\bm4\b", "iMac 24 M4", 1000),
     (r"\bimac\b.*\bm3\b", "iMac 24 M3", 850),
     (r"\bimac\b.*\bm1\b", "iMac 24 M1", 550),
-    # --- grafické karty RTX 50 a AMD RX ---
-    (r"rtx\s*5090", "RTX 5090", 2000), (r"rtx\s*5080", "RTX 5080", 900),
-    (r"rtx\s*5070\s*ti", "RTX 5070 Ti", 650), (r"rtx\s*5070", "RTX 5070", 450),
-    (r"rx\s*9070\s*xt", "RX 9070 XT", 580), (r"rx\s*9070", "RX 9070", 500),
-    (r"rx\s*7900\s*xtx", "RX 7900 XTX", 750), (r"rx\s*7900\s*xt\b", "RX 7900 XT", 550),
-    (r"rx\s*7900\s*gre", "RX 7900 GRE", 450), (r"rx\s*7800\s*xt", "RX 7800 XT", 380),
     # --- drony DJI ---
     (r"(?=.*\bdji\b).*avata\s*2", "DJI Avata 2", 650),
     (r"(?=.*\bdji\b).*avata", "DJI Avata", 450),
@@ -105,56 +101,56 @@ OTHER = [
     (r"(?=.*\bdji\b).*mini\s*4\s*k", "DJI Mini 4K", 200),
     (r"(?=.*\bdji\b).*mini\s*3\s*pro", "DJI Mini 3 Pro", 400),
     (r"(?=.*\bdji\b).*mini\s*3\b", "DJI Mini 3", 280),
-    (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 850),
-    (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 720),
-    (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 560),
-    (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 420),
+    (r"macbook\s*air.*\bm5\b", "MacBook Air M5", 1125),          # nový v obchode od ~1288 €
+    (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 940),
+    (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 780),
+    (r"macbook\s*air.*\bm2\b", "MacBook Air M2", 670),
+    (r"macbook\s*air.*\bm1\b", "MacBook Air M1", 450),
+    (r"macbook\s*pro.*\bm5\s*(pro|max)\b", "MacBook Pro M5 Pro/Max", 1900),
+    (r"macbook\s*pro.*\bm5\b(?!\s*(pro|max))", "MacBook Pro 14 M5", 1700),
     (r"macbook\s*pro.*\bm1\s*(pro|max)\b", "MacBook Pro M1 Pro/Max", 950),
-    (r"macbook\s*pro.*\bm[234]\s*(pro|max)\b", "MacBook Pro M2–M4 Pro/Max", 1300),
-    (r"macbook\s*pro.*\bm4\b(?!\s*(pro|max))", "MacBook Pro 14 M4", 1250),
-    (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 1000),
+    (r"macbook\s*pro.*\bm[234]\s*(pro|max)\b", "MacBook Pro M2–M4 Pro/Max", 1375),
+    (r"macbook\s*pro.*\bm4\b(?!\s*(pro|max))", "MacBook Pro 14 M4", 1100),
+    (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 900),
     (r"macbook\s*pro.*\bm2\b", "MacBook Pro 13 M2", 700),
     (r"macbook\s*pro.*\bm1\b", "MacBook Pro 13 M1", 580),
-    (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 800),
+    (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 680),
     (r"galaxy\s*s24\s*ultra|\bs24\s*ultra", "Galaxy S24 Ultra", 600),
     (r"galaxy\s*s23\s*ultra|\bs23\s*ultra", "Galaxy S23 Ultra", 400),
     (r"\bs25\s*(\+|plus)", "Galaxy S25+", 600), (r"\bs25\s*fe\b", "Galaxy S25 FE", 420), (r"(galaxy\s*)?\bs25\b", "Galaxy S25", 520),
-    (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 380),
-    (r"\bs23\s*(\+|plus)", "Galaxy S23+", 330), (r"\bs23\s*fe\b", "Galaxy S23 FE", 220), (r"(galaxy\s*)?\bs23\b", "Galaxy S23", 260),
+    (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 330),
+    (r"\bs23\s*(\+|plus)", "Galaxy S23+", 330), (r"\bs23\s*fe\b", "Galaxy S23 FE", 230), (r"(galaxy\s*)?\bs23\b", "Galaxy S23", 260),
     (r"z\s*fold\s*7|fold\s*7", "Galaxy Z Fold 7", 900),
     (r"z\s*fold\s*6|fold\s*6", "Galaxy Z Fold 6", 600),
     (r"z\s*fold\s*5|fold\s*5", "Galaxy Z Fold 5", 450),
-    (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 650),
-    (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 450),
-    (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 330),
+    (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 560),
+    (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 370),
+    (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 250),
     (r"pixel\s*9\s*pro", "Pixel 9 Pro", 550),
-    (r"xiaomi\s*15\s*t\s*pro", "Xiaomi 15T Pro", 450),
-    (r"xiaomi\s*15\s*t\b", "Xiaomi 15T", 350),
-    (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 650),
+    (r"xiaomi\s*15\s*t\s*pro", "Xiaomi 15T Pro", 400),
+    (r"xiaomi\s*15\s*t\b", "Xiaomi 15T", 300),
+    (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 445),
     (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
-    (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 300),
+    (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 265),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?10\b", "Apple Watch Series 10", 250),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?9\b", "Apple Watch Series 9", 190),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 150),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 135),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*se\b", "Apple Watch SE", 110),
     # --- Garmin ---
     (r"f[eē]nix\s*8", "Garmin Fenix 8", 650),
     (r"f[eē]nix\s*7\s*(x\s*)?pro", "Garmin Fenix 7 Pro", 450),
     (r"f[eē]nix\s*7\s*x", "Garmin Fenix 7X", 400),
     (r"f[eē]nix\s*7", "Garmin Fenix 7", 350),
-    (r"epix\s*pro", "Garmin Epix Pro", 550), (r"\bepix\b", "Garmin Epix 2", 380),
+    (r"epix\s*pro", "Garmin Epix Pro", 370), (r"\bepix\b", "Garmin Epix 2", 325),
     (r"forerunner\s*970", "Garmin Forerunner 970", 550), (r"forerunner\s*965", "Garmin Forerunner 965", 380),
-    (r"forerunner\s*955", "Garmin Forerunner 955", 280), (r"forerunner\s*(265|570)", "Garmin Forerunner 265/570", 260),
+    (r"forerunner\s*955", "Garmin Forerunner 955", 280), (r"forerunner\s*(265|570)", "Garmin Forerunner 265/570", 275),
     (r"forerunner\s*255", "Garmin Forerunner 255", 180),
-    (r"venu\s*(3|x1)", "Garmin Venu 3/X1", 260), (r"instinct\s*(2x|3)", "Garmin Instinct 2X/3", 220),
+    (r"venu\s*(3|x1)", "Garmin Venu 3/X1", 220), (r"instinct\s*(2x|3)", "Garmin Instinct 2X/3", 230),
     (r"airpods\s*pro\s*(2|3|ii)", "AirPods Pro 2/3", 120),
     (r"ipad\s*pro.*\bm[124]\b", "iPad Pro (M)", 550),
     (r"ipad\s*air.*\bm[123]\b", "iPad Air (M)", 380),
     (r"ps5\s*pro|playstation\s*5\s*pro", "PS5 Pro", 600),
-    (r"rtx\s*4090", "RTX 4090", 1500), (r"rtx\s*4080", "RTX 4080", 800),
-    (r"rtx\s*4070\s*ti", "RTX 4070 Ti", 550), (r"rtx\s*4070", "RTX 4070", 420),
-    (r"rtx\s*3080", "RTX 3080", 350),
 ]
 
 # Kúsky, ktoré vôbec neposielať
@@ -186,14 +182,14 @@ DAMAGE = [
 # Rozpoznávajú sa iba podľa NADPISU (v popise býva "+ 2 ovládače", "+ hry" a pod.)
 CONSOLE_VALUES = {
     "dualsense_edge": ("DualSense Edge", 150),
-    "dualsense": ("Ovládač DualSense", 45),
+    "dualsense": ("Ovládač DualSense", 48),
     "ps5_pro": ("PS5 Pro", 650),
-    "ps5_slim_digital": ("PS5 Slim Digital", 400),
-    "ps5_slim": ("PS5 Slim s mechanikou", 450),
-    "ps5_digital": ("PS5 Digital", 350),
-    "ps5": ("PS5 s mechanikou", 400),
-    "deck_oled_1tb": ("Steam Deck OLED 1TB", 560),
-    "deck_oled": ("Steam Deck OLED 512GB", 480),
+    "ps5_slim_digital": ("PS5 Slim Digital", 470),
+    "ps5_slim": ("PS5 Slim s mechanikou", 510),
+    "ps5_digital": ("PS5 Digital", 400),
+    "ps5": ("PS5 s mechanikou", 450),
+    "deck_oled_1tb": ("Steam Deck OLED 1TB", 615),
+    "deck_oled": ("Steam Deck OLED 512GB", 515),
     "deck_lcd_512": ("Steam Deck LCD 512GB", 340),
     "deck_lcd": ("Steam Deck LCD", 300),
     "switch2": ("Nintendo Switch 2", 400),
@@ -219,8 +215,7 @@ BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5", "xbox series x"]
 # Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
-EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("pc", "rtx 50"), ("pc", "rx 9070"), ("pc", "rx 7900"),
-                  ("pc", "rx 7800"), ("foto", "dji"), ("pc", "dji")]
+EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("foto", "dji"), ("pc", "dji")]
 # Príslušenstvo – v NADPISE znamená, že to nie je samotné zariadenie
 ACCESSORY = re.compile(
     # nadpis ZAČÍNA príslušenstvom ("Batéria DJI Mini 3", "Stojan na Mac mini")
@@ -274,12 +269,42 @@ def console_estimate(title):
     return None
 
 
+GAME_VALUE = int(os.getenv("GAME_VALUE", "10"))      # € za hru v balíku s konzolou (predaj zvlášť)
+PAD_VALUE = int(os.getenv("PAD_VALUE", "30"))        # € za druhý a ďalší ovládač
+_NUM = r"(\d{1,2}|dve|dva|tri|štyri|styri|päť|pat|šesť|sest|two|three|four|five)"
+_WORDNUM = {"dve": 2, "dva": 2, "tri": 3, "štyri": 4, "styri": 4, "päť": 5, "pat": 5, "šesť": 6, "sest": 6,
+            "two": 2, "three": 3, "four": 4, "five": 5}
+GAMES_N_RE = re.compile(_NUM + r"\s*x?\s*(hr(a|y|ami|ier|u)|hier|her|gier|gry|games?)\b", re.I)
+GAMES_ANY_RE = re.compile(r"(\+|\bs\b|\ba\b|\bplus\b|\bvrátane\b|\bwith\b|\bi\b)\s*(\d+\s*)?(hr(y|ami|a)|hier|gry|games)\b", re.I)
+PADS_N_RE = re.compile(_NUM + r"\s*x?\s*(ovl[aá]d[aá][cč]\w*|dualsense\w*|gamepad\w*|pad\w*|controller\w*)", re.I)
+
+
+def _num(x):
+    return int(x) if x.isdigit() else _WORDNUM.get(x.lower(), 0)
+
+
+def console_extras(name, text):
+    """Hodnota hier a ďalších ovládačov v balíku s konzolou: (€, popis) alebo (0, '')."""
+    if name not in CONSOLE_NAMES or "DualSense" in name or "Ovládač" in name:
+        return 0, ""
+    games = max((_num(m.group(1)) for m in GAMES_N_RE.finditer(text)), default=0)
+    if not games and GAMES_ANY_RE.search(text):
+        games = 2                                   # "+ hry" bez počtu – opatrne rátam 2
+    games = min(games, 8)                           # viac ako 8 hier sa ťažko predáva
+    pads = max((_num(m.group(1)) for m in PADS_N_RE.finditer(text)), default=0)
+    extra_pads = min(max(pads - 1, 0), 2)           # prvý ovládač je súčasť konzoly
+    value = games * GAME_VALUE + extra_pads * PAD_VALUE
+    hw = "hra" if games == 1 else ("hry" if games < 5 else "hier")
+    parts = ([f"{games} {hw}"] if games else []) + ([f"+{extra_pads} ovládač"] if extra_pads else [])
+    return value, (f"🎮 v balíku {', '.join(parts)} (~{value} € pri predaji zvlášť)" if value else "")
+
+
 def required_profit(value):
     """Lacné veci (ovládače) by 60 € nikdy nedosiahli – pre ne stačí ~30 % z ceny."""
     return min(MIN_PROFIT, max(15, round(value * 0.3)))
 
 
-MODEL_RE = re.compile(r"iph?one\s*(1[2-7])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
+MODEL_RE = re.compile(r"iph?one\s*(1[2-8])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
 GB_RE = re.compile(r"\b(64|128|256|512)\s?gb|\b(1)\s?tb", re.I)
 BAT_RE = re.compile(r"(\d{2,3})\s?%")
 
@@ -433,7 +458,10 @@ def evaluate(item, text):
         notes.append(f"batéria {bats[0]} %")
     if item["price"] < 0.35 * value:
         notes.append("⚠️ podozrivo lacné – over si to")
-    profit = round(value * SELL_FACTOR - item["price"] - repair)
+    bonus, btxt = console_extras(name, full)
+    if bonus:
+        notes.append(btxt)
+    profit = round(value * SELL_FACTOR + bonus - item["price"] - repair)
     return {"name": name, "value": value, "repair": repair, "profit": profit, "notes": notes}
 
 
@@ -596,25 +624,87 @@ def car_km(text):
     return int(m.group(3)) * 1000
 
 
-def car_comps(query, year, own_id):
-    """Ceny podobných áut (rok ±1) z celého Slovenska; medián a počet."""
-    key = (query, year)
-    if key not in _comp_cache:
-        prices = []
-        for off in ("", "20/", "40/"):
+CAR_KM_PCT = 0.012          # ~1,2 % ceny za každých 10 000 km rozdielu
+CAR_YEAR_PCT = 0.07         # ~7 % ceny za rok rozdielu
+FUEL_RE = [("diesel", re.compile(r"diesel|nafta|\btdi\b|\bcrdi\b|\bdci\b|\bhdi\b|\bcdti\b|\bd-4d\b|\bdtec\b|\bskyactiv-d\b", re.I)),
+           ("hybrid", re.compile(r"hybrid", re.I)),
+           ("lpg", re.compile(r"\blpg\b|\bcng\b", re.I)),
+           ("benzín", re.compile(r"benz[ií]n|\btsi\b|\btfsi\b|\bmpi\b|\bgdi\b|\bvvt-?i\b|ecoboost|\bsce\b|\btce\b", re.I))]
+AUTO_RE = re.compile(r"automat|\bdsg\b|\bcvt\b|\bat\b(?=\W)|tiptronic|s[\s-]?tronic", re.I)
+MANUAL_RE = re.compile(r"manu[aá]l", re.I)
+COMBI_RE = re.compile(r"kombi|combi|variant|\bsw\b|touring|estate|sportswagon|sports\s*tourer|tourer|break|avant", re.I)
+KW_RE = re.compile(r"(\d{2,3})\s?kw", re.I)
+
+
+def car_attrs(text):
+    """palivo, prevodovka, karoséria a výkon z textu inzerátu (None = neuvedené)."""
+    fuel = next((f for f, rx in FUEL_RE if rx.search(text)), None)
+    gear = "automat" if AUTO_RE.search(text) else ("manuál" if MANUAL_RE.search(text) else None)
+    body = "kombi" if COMBI_RE.search(text) else None
+    kw = KW_RE.search(text)
+    return {"fuel": fuel, "gear": gear, "body": body, "kw": int(kw.group(1)) if kw else None}
+
+
+def _car_pool(query):
+    """Všetky porovnateľné inzeráty daného modelu (cache 1 h)."""
+    if query not in _comp_cache:
+        pool = []
+        for off in ("", "20/", "40/", "60/"):
             html = fetch(f"https://auto.bazos.sk/{off}?hledat={requests.utils.quote(query)}&cenaod=500&cenado=60000")
             time.sleep(1)
             if not html:
                 break
-            for c in parse_list(html, "https://auto.bazos.sk"):
+            items = parse_list(html, "https://auto.bazos.sk")
+            for c in items:
                 txt = f"{c['title']} {c['snippet']}"
                 y = car_year(txt)
-                if c["id"] == own_id or not y or abs(y - year) > 1 or CAR_BAD.search(txt) or c["price"] < 500:
+                if not y or CAR_BAD.search(txt) or c["price"] < 500:
                     continue
-                prices.append(c["price"])
-        prices.sort()
-        _comp_cache[key] = (prices[len(prices) // 2] if len(prices) >= 5 else None, len(prices))
-    return _comp_cache[key]
+                pool.append({"id": c["id"], "price": c["price"], "year": y, "km": car_km(txt), **car_attrs(txt)})
+            if len(items) < 20:
+                break
+        _comp_cache[query] = pool
+    return _comp_cache[query]
+
+
+def car_value(query, year, km, attrs, own_id):
+    """Odhad trhovej ceny auta: podobné inzeráty (rok ±1, rovnaké palivo/prevodovka/karoséria/výkon),
+    každý prepočítaný na rovnaký rok a km. Vráti (hodnota, počet, popis porovnania) alebo (None, n, "")."""
+    pool = [c for c in _car_pool(query) if c["id"] != own_id and abs(c["year"] - year) <= 1]
+    used = []
+
+    def same(c, keys):
+        for k in keys:
+            if k == "kw":
+                if attrs["kw"] and c["kw"] and abs(c["kw"] - attrs["kw"]) > 0.25 * attrs["kw"]:
+                    return False
+            elif attrs[k] and c[k] and attrs[k] != c[k]:
+                return False
+        return True
+
+    levels = [("fuel", "gear", "body", "kw"), ("fuel", "gear", "body"), ("fuel", "gear"), ("fuel",), ()]
+    for keys in levels:                                   # od najprísnejšieho po voľnejšie porovnanie
+        sel = [c for c in pool if same(c, keys)]
+        if len(sel) >= 5:
+            used = keys
+            break
+    else:
+        return None, len(pool), ""
+    adj, with_km = [], 0
+    for c in sel:
+        f = 1 + CAR_YEAR_PCT * (year - c["year"])         # novší ročník = drahší
+        if km and c["km"]:
+            f *= 1 + CAR_KM_PCT * (c["km"] - km) / 10000  # viac km ako porovnávané = lacnejší
+            with_km += 1
+        adj.append(c["price"] * max(0.6, min(1.4, f)))
+    adj.sort()
+    value = round(adj[len(adj) // 2] / 50) * 50
+    if km and with_km < len(sel) / 2:
+        return None, len(sel), ""                          # km nevieme poriadne porovnať
+    names = {"fuel": "palivo", "gear": "prevodovka", "body": "karoséria", "kw": "výkon"}
+    desc = f"{len(sel)} podobných ({year}±1" + (", " + ", ".join(names[k] for k in used) if used else "") + \
+           (f", prepočítané na {km // 1000} tis. km" if km and with_km else "") + ")"
+    return value, len(sel), desc
 
 
 def car_seller_message(it, name, year, km, text):
@@ -671,17 +761,23 @@ def process_cars(state):
             km = car_km(full)
             if km and km > CAR_MAX_KM:
                 continue
-            median, n = car_comps(mdl[0], year, it["id"])
+            if not km:
+                continue                           # bez km sa auto nedá férovo porovnať
+            attrs = car_attrs(full)
+            median, n, desc = car_value(mdl[0], year, km, attrs, it["id"])
             if not median or it["price"] > 0.85 * median:
                 continue
-            profit = round(median * CAR_SELL_FACTOR - it["price"] - CAR_PREP_COST - travel)
+            sell = CAR_SELL_FACTOR - (0.05 if km > 220_000 else 0)   # vysoké km sa predávajú horšie
+            profit = round(median * sell - it["price"] - CAR_PREP_COST - travel)
             if profit < CAR_MIN_PROFIT:
                 continue
-            notes = [f"porovnané s {n} inzerátmi ({year}±1)", f"príprava −{CAR_PREP_COST} €"]
+            spec = ", ".join(x for x in (attrs["fuel"], attrs["gear"], attrs["body"],
+                                         f"{attrs['kw']} kW" if attrs["kw"] else None) if x)
+            notes = [desc, f"príprava −{CAR_PREP_COST} €"] + ([spec] if spec else [])
+            if km > 220_000:
+                notes.append("vysoké km – predaj pomalší (−5 %)")
             if travel:
                 notes.append(f"{'🤝 BA – ' if mode == 'znami' else 'cesta: '}{area} (−{travel} €)")
-            if not km:
-                notes.append("km neuvedené")
             if it["price"] < 0.55 * median:
                 notes.append("⚠️ podozrivo lacné – over VIN, nikdy neplať zálohu vopred")
             drop = f" (zlacnené z {prev} €)" if prev else ""
@@ -708,9 +804,14 @@ VINTED_ON = os.getenv("VINTED_ON", "1") == "1"
 VINTED_EVERY = int(os.getenv("VINTED_EVERY", "15"))   # každý N-tý beh (pri intervale 120 s = ~30 min)
 VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/CZ/PL) €
 VINTED_BASE = "https://www.vinted.sk"
+# (hľadanie, cena do, cena od) – široké hľadania: všetky iPhony naraz, cena od odfiltruje kryty a príslušenstvo,
+# takže každú minútu stačia 3 požiadavky a nový inzerát sa nájde hneď v najbližšom prechode
 VINTED_QUERIES = [
-    ("iphone 12 pro", 260), ("iphone 13", 300), ("iphone 14", 400), ("iphone 15", 500), ("iphone 16", 700),
-    ("macbook air", 650), ("macbook pro", 1100), ("playstation 5", 420),
+    ("iphone", 1200, 150),
+    ("macbook", 1500, 250),
+    ("playstation 5", 450, 150),
+    ("ps5", 450, 150),             # veľa ľudí píše len "PS5" / "Ps 5"
+    ("ps 5", 450, 150),
 ]
 _vinted_session = requests.Session()
 _vinted_blocked_until = 0.0
@@ -761,13 +862,14 @@ VINTED_ACC = re.compile(
     r"|\b(etui|obudowa|case|pokrowiec|obal|kryt)\s+(na|do|pre|for)\b", re.I)
 
 
-def _vinted_search_html(q, max_price):
+def _vinted_search_html(q, max_price, min_price=0):
     """Katalóg Vinted ako HTML (rovnako ako v prehliadači). Vráti zoznam položiek ako z API."""
     global _vinted_blocked_until
     if time.time() < _vinted_blocked_until:
         return None
-    time.sleep(2 + random.random() * 2)
-    url = f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
+    time.sleep(0.8 + random.random() * 0.8)
+    url = (f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
+           + (f"&price_from={min_price}" if min_price else ""))
     r = _vinted_session.get(url, headers=UA, timeout=30)
     if r.status_code in (403, 429, 503):
         _vinted_blocked_until = time.time() + 3600
@@ -853,12 +955,18 @@ VINTED_SCAM = re.compile(
     r"whats\s*app|telegram|signal|viber|\+?\d{3}[\s-]?\d{3}[\s-]?\d{3}|@gmail|@seznam|@azet|@wp\.pl|@o2\.pl|"
     r"kontaktuj\w*\s+(ma|mě|mnie)|napíšte\s+(mi\s+)?(na|súkrom)|pisz\s+(na|prywat)|priv\b|\bpv\b|"
     r"nie\s+przez\s+kup|nie\s+kupuj|neklikajte\s+kúpiť|nekupujte\s+cez|cez\s+kúpiť\s+teraz\s+nie|"
-    r"zarezerwuj|rezervuj\w*\s+(si\s+)?pre\s+mňa|dla\s+ciebie", re.I)
+    r"zarezerwuj|rezervuj\w*\s+(si\s+)?pre\s+mňa|dla\s+ciebie|"
+    # predaj cez inú platformu / mimo tlačidla "Kúpiť"
+    r"allegro|\bolx\b|sbazar|bazoš|bazos|marketplace|"
+    r"buy\s*it\s*now|kup\s*teraz|kúpiť\s*teraz|koupit\s*hned|"
+    r"nie\s+sprzedaj\w*\s+przez|nepred[aá]v\w*\s+cez|neprod[aá]v\w*\s+p[rř]es|"
+    r"odbi[oó]r\w*\s+osobist|osobn[yý]\s+odber|osobn[ií]\s+odb[eě]r|odbi[oó]r\s+w\s+|"
+    r"firmow\w*\s+kont|firemn\w*\s+[uú][cč]et", re.I)
 VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Dostateczny)", re.I)
 
 
 VINTED_PER_PASS = int(os.getenv("VINTED_PER_PASS", "2"))   # koľko ostatných hľadaní na prechod (striedajú sa)
-VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "macbook"), re.I)   # tieto sa hľadajú pri každom prechode
+VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "."), re.I)   # "." = všetky hľadania pri každom prechode   # tieto sa hľadajú pri každom prechode
 _vinted_pos = 0
 
 
@@ -872,8 +980,8 @@ def process_vinted(state):
     n = min(VINTED_PER_PASS, len(rest))
     batch = prio + [rest[(_vinted_pos + i) % len(rest)] for i in range(n)] if rest else prio
     _vinted_pos = (_vinted_pos + n) % len(rest) if rest else 0
-    for q, max_price in batch:
-        data = _vinted_search_html(q, max_price)
+    for q, max_price, *mn in batch:
+        data = _vinted_search_html(q, max_price, mn[0] if mn else 0)
         if data is None:
             if time.time() < _vinted_blocked_until:
                 break
@@ -926,14 +1034,12 @@ def process_vinted(state):
             ev["notes"].append(f"⭐ predajca: {reviews} recenzií" if reviews is not None
                                else "⚠️ počet recenzií sa nezistil – pozri profil")
             cands.append((ev["profit"], price, prev, url, ev))
-    cands.sort(key=lambda c: -c[0])
-    for profit, price, prev, url, ev in cands[:VINTED_MAX_ALERTS]:
-        drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
-        msg = (f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
-               f"Zisk ~<b>{profit} €</b> (bežne ~{ev['value']} €)\n"
-               f"ℹ️ {esc('; '.join(ev['notes']))}\n"
-               f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
-        send_telegram(msg)
+            if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
+                drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
+                send_telegram(f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
+                              f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
+                              f"ℹ️ {esc('; '.join(ev['notes']))}\n"
+                              f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
@@ -942,7 +1048,8 @@ _cycle = 0
 _last_targeted = 0.0
 _last_vinted = 0.0
 TARGETED_MIN = int(os.getenv("TARGETED_MIN", "10"))                       # cielené hľadania každých X min
-VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # Vinted každých X min
+VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # (staré nastavenie, nepoužíva sa)
+VINTED_SEC = int(os.getenv("VINTED_SEC", "30"))                            # Vinted každých X sekúnd
 
 
 def main():
@@ -1000,9 +1107,9 @@ def main():
             if ev:
                 ev["profit"] -= travel
                 if mode == "znami":
-                    ev["notes"].append(f"🤝 kúpia známi v BA a pošlú (−{travel} €)")
+                    ev["notes"].append("🤝 kúpia známi v BA" + (f" (−{travel} €)" if travel else ""))
                 elif mode == "kosice":
-                    ev["notes"].append(f"🤝 kúpi kamarát v Košiciach a pošle (−{travel} €)")
+                    ev["notes"].append("🤝 kúpi kamarát v Košiciach" + (f" (−{travel} €)" if travel else ""))
                 elif mode == "posta":
                     ev["notes"].append(f"📦 poslať poštou/Packetou na dobierku (−{travel} €)")
                     if re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
@@ -1023,7 +1130,7 @@ def main():
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
-    if VINTED_ON and time.time() - _last_vinted >= VINTED_MIN * 60:
+    if VINTED_ON and time.time() - _last_vinted >= VINTED_SEC:
         _last_vinted = time.time()
         try:
             alerts += process_vinted(state)
@@ -1037,7 +1144,7 @@ def main():
     print(f"{time.strftime('%d.%m. %H:%M')} Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}{blocked}")
 
 
-BREAK_CHANCE = float(os.getenv("BREAK_CHANCE", "0.03"))   # ~raz za 30 behov prestávka 5–15 min
+BREAK_CHANCE = float(os.getenv("BREAK_CHANCE", "0"))      # prestávky vypnuté – dobré ponuky miznú do pár minút
 QUIET_FROM = int(os.getenv("QUIET_FROM", "22"))   # nočný kľud od (hodina)
 QUIET_TO = int(os.getenv("QUIET_TO", "5"))        # do (hodina)
 
@@ -1074,11 +1181,30 @@ def loop(interval):
         if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
             _comp_cache.clear()
             last_cache_clear = time.time()
-        wait = interval * random.uniform(0.75, 1.5) - (time.time() - start)   # nepravidelný rytmus
+        wait = interval * random.uniform(0.8, 1.2) - (time.time() - start)   # nepravidelný rytmus
         if random.random() < BREAK_CHANCE:
-            wait = random.uniform(5, 15) * 60                                 # občasná dlhšia prestávka
+            wait = random.uniform(2, 4) * 60                                 # občasná dlhšia prestávka
             print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
-        time.sleep(max(10, wait))
+        end = time.time() + max(10, wait)
+        while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
+            vinted_tick()
+            time.sleep(max(1, min(5, end - time.time())))
+
+
+def vinted_tick():
+    """Rýchla kontrola Vinted mimo hlavného behu (každých VINTED_SEC sekúnd)."""
+    global _last_vinted
+    if not VINTED_ON or time.time() - _last_vinted < VINTED_SEC or quiet_seconds():
+        return
+    _last_vinted = time.time()
+    try:
+        state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+        n = process_vinted(state)
+        STATE_FILE.write_text(json.dumps(state))
+        if n:
+            print(f"{time.strftime('%d.%m. %H:%M')} Vinted: upozornení {n}")
+    except Exception as e:
+        print(f"[!] Vinted chyba: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
