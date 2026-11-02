@@ -16,7 +16,7 @@ print("\n=== KATEGÓRIE (čo bot rozpozná) ===")
 SAMPLES = {
     "iPhone": ["iPhone 13 128GB", "iPhone 14 Pro 256GB", "iPhone 15 Pro Max 256GB", "iPhone 16 128GB", "iPhone 17 Pro 256GB"],
     "MacBook / Mac": ["MacBook Air M1 8/256", "MacBook Air M3 16GB 512GB", "MacBook Pro 14 M3 512GB", "Mac mini M2", "iMac M1 24"],
-    "Samsung / Google / Xiaomi": ["Samsung Galaxy S24 Ultra 256GB", "Samsung Galaxy S23 128GB", "Galaxy Z Fold 5", "Google Pixel 9 Pro", "Xiaomi 15T"],
+    "Samsung": ["Samsung Galaxy S24 Ultra 256GB", "Samsung Galaxy S23 128GB", "Galaxy Z Fold 5", "Galaxy S25 128GB", "Galaxy Z Flip 6"],
     "Hodinky / AirPods / iPad": ["Apple Watch Ultra 2", "Apple Watch Series 9 45mm", "AirPods Pro 2", "iPad Air M2", "Garmin Fenix 7"],
     "Konzoly": ["PS5 Slim s mechanikou", "PS5 Pro", "Xbox Series X 1TB", "Steam Deck OLED 512GB", "Nintendo Switch OLED", "Ovládač DualSense"],
     "Drony DJI": ["DJI Mini 4 Pro", "DJI Air 3", "DJI Avata 2", "DJI Mavic 3 Classic", "DJI Neo"],

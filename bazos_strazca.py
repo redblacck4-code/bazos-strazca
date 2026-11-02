@@ -7,7 +7,7 @@ Spúšťa sa raz (jeden prechod) – opakovanie rieši cron / GitHub Actions.
 Premenné prostredia:
   TELEGRAM_TOKEN    – token bota od @BotFather
   TELEGRAM_CHAT_ID  – tvoje chat ID (napr. cez @userinfobot)
-  MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 60 €)
+  MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 80 €)
 """
 import html as _html, json, os, random, re, sys, time
 from pathlib import Path
@@ -49,7 +49,10 @@ REGIONS = {
 }
 SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
 PAGES = 3                    # koľko strán (po 20) prejsť v každej sekcii (celé SK, každé 2–3 min stačí)
-MIN_PROFIT = int(os.getenv("MIN_PROFIT", "60"))
+MIN_PROFIT = int(os.getenv("MIN_PROFIT", "80"))
+MIN_PROFIT_PCT = float(os.getenv("MIN_PROFIT_PCT", "0.10"))   # drahé veci: aspoň 10 % z ceny (viazané peniaze, riziko)
+SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné modely: +40 € k zisku
+SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -126,9 +129,6 @@ OTHER = [
     (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 560),
     (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 370),
     (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 250),
-    (r"pixel\s*9\s*pro", "Pixel 9 Pro", 550),
-    (r"xiaomi\s*15\s*t\s*pro", "Xiaomi 15T Pro", 400),
-    (r"xiaomi\s*15\s*t\b", "Xiaomi 15T", 300),
     (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 445),
     (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 265),
@@ -299,9 +299,13 @@ def console_extras(name, text):
     return value, (f"🎮 v balíku {', '.join(parts)} (~{value} € pri predaji zvlášť)" if value else "")
 
 
-def required_profit(value):
+def required_profit(value, name=""):
     """Lacné veci (ovládače) by 60 € nikdy nedosiahli – pre ne stačí ~30 % z ceny."""
-    return min(MIN_PROFIT, max(15, round(value * 0.3)))
+    if value < 250:                                   # lacné veci (ovládače, AirPods…) – ~30 % z ceny
+        need = min(MIN_PROFIT, max(15, round(value * 0.3)))
+    else:
+        need = max(MIN_PROFIT, round(value * MIN_PROFIT_PCT))
+    return need + (SLOW_EXTRA if SLOW_RE.search(name) else 0)
 
 
 MODEL_RE = re.compile(r"iph?one\s*(1[2-8])\s*(pro\s*max|pro|plus|mini|e)?\b|iphone\s*(17\s*)?air", re.I)
@@ -1009,7 +1013,7 @@ def process_vinted(state):
             total = price + VINTED_SHIP
             if price < 0.55 * quick[1] or total > VINTED_MAX_RATIO * quick[1]:
                 continue
-            if quick[1] * SELL_FACTOR - total < VINTED_MIN_PROFIT:
+            if quick[1] * SELL_FACTOR - total < max(VINTED_MIN_PROFIT, required_profit(quick[1], quick[0])):
                 continue
             url = x.get("url") or f"{VINTED_BASE}/items/{x.get('id')}"
             desc, reviews = _vinted_detail(url)
@@ -1024,7 +1028,7 @@ def process_vinted(state):
             if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
                 continue
             ev = evaluate(item, text)
-            if not ev or ev["profit"] < VINTED_MIN_PROFIT or any("GB neuvedené" in n for n in ev["notes"]):
+            if not ev or ev["profit"] < max(VINTED_MIN_PROFIT, required_profit(ev["value"], ev["name"])) or any("GB neuvedené" in n for n in ev["notes"]):
                 continue
             if any(k in n for n in ev["notes"] for k in ("displej", "zadné sklo", "neoriginálny")):
                 continue
@@ -1099,7 +1103,7 @@ def main():
             if quick and (too_cheap_console(quick[0], quick[1], it["price"], it["snippet"])
                           or is_accessory_or_bundle(quick[0], it["title"], it["price"], quick[1])):
                 continue
-            if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1]):
+            if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1], quick[0]):
                 continue                      # ani bez opráv to nevychádza
             text = detail_text(it["url"]) or it["snippet"]
             time.sleep(1)
@@ -1116,7 +1120,7 @@ def main():
                         ev["notes"].append("⚠️ predajca chce iba osobný odber")
                 elif travel:
                     ev["notes"].append(f"cesta: {area} (−{travel} €)")
-            if not ev or ev["profit"] < required_profit(ev["value"]):
+            if not ev or ev["profit"] < required_profit(ev["value"], ev["name"]):
                 continue
             drop = f" (zlacnené z {prev} €)" if prev else ""
             msg = (f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
