@@ -1,5 +1,5 @@
 """Kontrola nastavenia strážcu: python kontrola.py   (alebo: python kontrola.py offline)"""
-import os, sys
+import os, sys, time
 import bazos_strazca as b
 
 OK, NO = "✅", "❌"
@@ -8,10 +8,16 @@ live = "offline" not in sys.argv
 print("=== NASTAVENIA ===")
 print(f"Bazoš min. zisk: {b.MIN_PROFIT} € (lacné veci ~30 % z ceny)")
 print(f"Vinted: {'zapnutý' if b.VINTED_ON else 'VYPNUTÝ'}, min. zisk {b.VINTED_MIN_PROFIT} €, "
-      f"každých {b.VINTED_MIN} min, max {b.VINTED_MAX_ALERTS} tipy naraz")
+      f"každých {b.VINTED_SEC} s, max {b.VINTED_MAX_ALERTS} tipy naraz")
 print(f"Autá: {b.CAR_MIN_PRICE}–{b.CAR_MAX_PRICE} €, min. zisk {b.CAR_MIN_PROFIT} €")
 print(f"Telegram: {'nastavený' if os.getenv('TELEGRAM_TOKEN') and os.getenv('TELEGRAM_CHAT_ID') else 'tu sa nekontroluje (bot ho má v strazca.sh)'}")
 
+try:
+    import json as _j
+    _d = _j.load(open(b.PRICES_FILE, encoding="utf-8"))
+    print(f"Trhové ceny: {len(_d.get('ceny', {}))} modelov, prieskum {time.strftime('%d.%m.%Y', time.localtime(_d.get('updated', 0)))}")
+except Exception:
+    print("Trhové ceny: zatiaľ žiadny prieskum (bot použije ceny z kódu)")
 print("\n=== KATEGÓRIE (čo bot rozpozná) ===")
 SAMPLES = {
     "iPhone": ["iPhone 13 128GB", "iPhone 14 Pro 256GB", "iPhone 15 Pro Max 256GB", "iPhone 16 128GB", "iPhone 17 Pro 256GB"],

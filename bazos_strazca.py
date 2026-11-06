@@ -9,7 +9,7 @@ Premenné prostredia:
   TELEGRAM_CHAT_ID  – tvoje chat ID (napr. cez @userinfobot)
   MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 80 €)
 """
-import html as _html, json, os, random, re, sys, time
+import html as _html, json, os, random, re, subprocess, sys, time
 from pathlib import Path
 
 import requests
@@ -70,7 +70,7 @@ IPHONE = {
     "14": {128: 300, 256: 330, 512: 360}, "14 plus": {128: 300, 256: 325, 512: 350},
     "14 pro": {128: 390, 256: 400, 512: 430, 1024: 460}, "14 pro max": {128: 440, 256: 460, 512: 500, 1024: 530},
     "15": {128: 390, 256: 420, 512: 450}, "15 plus": {128: 440, 256: 480, 512: 510},
-    "15 pro": {128: 510, 256: 585, 512: 620, 1024: 630}, "15 pro max": {256: 610, 512: 660, 1024: 700},
+    "15 pro": {128: 505, 256: 540, 512: 580, 1024: 620}, "15 pro max": {256: 580, 512: 630, 1024: 680},
     "16e": {128: 420, 256: 470}, "16": {128: 550, 256: 600, 512: 650}, "16 plus": {128: 590, 256: 640, 512: 690},
     "16 pro": {128: 650, 256: 700, 512: 760, 1024: 820}, "16 pro max": {256: 770, 512: 830, 1024: 900},
     "17": {256: 760, 512: 860}, "air": {256: 700, 512: 800},
@@ -416,7 +416,36 @@ def region(loc):
     return None                                                      # východ (04x–09x)
 
 
-def estimate(title, text):
+PRICES_FILE = Path(__file__).with_name("ceny.json")   # automaticky prepočítané ceny (python ceny.py)
+_prices = {"mtime": None, "data": {}}
+
+
+def market_prices():
+    """Trhové ceny z ceny.json (ak existuje); znovu načíta, keď sa súbor zmení."""
+    try:
+        mt = PRICES_FILE.stat().st_mtime
+    except OSError:
+        return {}
+    if mt != _prices["mtime"]:
+        try:
+            _prices["data"] = json.loads(PRICES_FILE.read_text(encoding="utf-8")).get("ceny", {})
+        except Exception:
+            _prices["data"] = {}
+        _prices["mtime"] = mt
+    return _prices["data"]
+
+
+def estimate(title, text, raw=False):
+    """Vráti (názov, bežná cena, poznámky) alebo None. Cenu prepíše trhová z ceny.json (ak je)."""
+    r = _estimate_raw(title, text)
+    if r and not raw:
+        mp = market_prices().get(r[0])
+        if mp:
+            return r[0], int(mp), r[2]
+    return r
+
+
+def _estimate_raw(title, text):
     """Vráti (názov, bežná cena, poznámky) alebo None."""
     notes = []
     c = console_estimate(title)
@@ -1186,6 +1215,10 @@ def loop(interval):
     while True:
         q = quiet_seconds()
         if q:
+            auto_survey()
+            q = quiet_seconds()
+            if not q:
+                continue
             print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
             time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
             continue
@@ -1205,6 +1238,35 @@ def loop(interval):
         while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
             vinted_tick()
             time.sleep(max(1, min(5, end - time.time())))
+
+
+SURVEY_DAYS = int(os.getenv("SURVEY_DAYS", "14"))   # prieskum cien automaticky každých X dní (v noci)
+
+
+_survey_try = [0.0]
+
+
+def auto_survey():
+    """V noci (od 2:00) spusti ceny.py, ak je posledný prieskum starší ako SURVEY_DAYS."""
+    if SURVEY_DAYS <= 0 or time.localtime().tm_hour < 2 or time.localtime().tm_hour >= QUIET_TO:
+        return
+    if time.time() - _survey_try[0] < 20 * 3600:          # najviac jeden pokus za noc
+        return
+    try:
+        last = json.loads(PRICES_FILE.read_text(encoding="utf-8")).get("updated", 0)
+    except Exception:
+        last = 0
+    if time.time() - last < SURVEY_DAYS * 86400:
+        return
+    script = Path(__file__).with_name("ceny.py")
+    if not script.exists():
+        return
+    _survey_try[0] = time.time()
+    print(f"{time.strftime('%d.%m. %H:%M')} Spúšťam automatický prieskum cien…")
+    try:
+        subprocess.run([sys.executable, str(script), "--auto"], cwd=str(script.parent), timeout=3 * 3600)
+    except Exception as e:
+        print(f"[!] prieskum cien: {e}", file=sys.stderr)
 
 
 def vinted_tick():

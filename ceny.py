@@ -1,8 +1,9 @@
 """Prieskum cien na Bazoši: python ceny.py
-Pre každý model zistí medián inzerovaných cien (celé SK, len funkčné kusy) a porovná ho s cenou v bote.
-Výsledok uloží do ceny_report.txt a pošle do Telegramu (ak je nastavený). Bot počas behu radšej zastav.
-Beží pomaly (~15 min), aby nás Bazoš nezablokoval."""
-import os, re, sys, time, random, statistics, requests
+Pre každý model zistí REÁLNU trhovú cenu (15. percentil inzerovaných cien funkčných kusov – drahšie
+inzeráty sa predávajú dlho alebo vôbec) a uloží ju do ceny.json. Bot ju odtiaľ automaticky používa.
+Bot spúšťa prieskum sám každých 14 dní v noci; ručne: python ceny.py
+Výsledok pošle do Telegramu a uloží do ceny_report.txt. Beží pomaly (~15 min), aby nás Bazoš nebrzdil."""
+import json, os, re, sys, time, random, statistics, requests
 import bazos_strazca as b
 
 # (sekcia Bazoša, hľadaný text, počet strán po 20)
@@ -31,7 +32,7 @@ def bad(it, name, value):
     if b.too_cheap_console(name, value, it["price"], it["snippet"]) or \
             b.is_accessory_or_bundle(name, it["title"], it["price"], value):
         return True
-    return not (0.4 * value <= it["price"] <= 1.7 * value)    # odľahlé ceny (diely, preklepy, "nové 2x")
+    return not (0.55 * value <= it["price"] <= 1.7 * value)    # odľahlé ceny (diely, preklepy, "nové 2x")
 
 
 prices, values, seen = {}, {}, set()
@@ -55,7 +56,7 @@ for i, (sec, q, npages) in enumerate(Q, 1):
             if it["id"] in seen or it["price"] <= 0:
                 continue
             seen.add(it["id"])
-            est = b.estimate(it["title"], it["title"])      # model len z nadpisu = spoľahlivejšie
+            est = b.estimate(it["title"], it["title"], raw=True)   # model len z nadpisu; predvolená cena z kódu
             if not est or any("GB neuvedené" in n for n in est[2]):
                 continue
             name, value, _ = est
@@ -66,21 +67,38 @@ for i, (sec, q, npages) in enumerate(Q, 1):
         if len(items) < 20:
             break
 
+PCT = int(os.getenv("CENY_PERCENTIL", "15"))      # 15 = cena, za ktorú sa reálne predá (drahšie inzeráty visia)
+MIN_N = 6                                          # menej inzerátov = nespoľahlivé, ponechá sa stará cena
+here = os.path.dirname(os.path.abspath(__file__))
+jpath = os.path.join(here, "ceny.json")
+try:
+    old = json.load(open(jpath, encoding="utf-8")).get("ceny", {})
+except Exception:
+    old = {}
+new = dict(old)
 lines, upd = [], []
 for name in sorted(prices, key=lambda n: (n.split()[0], n)):
-    ps = prices[name]
-    if len(ps) < 4:
+    ps = sorted(prices[name])
+    if len(ps) < MIN_N:
         continue
-    med = round(statistics.median(ps) / 5) * 5
-    v = values[name]
-    diff = (med - v) / v * 100
-    mark = "⚠️" if abs(diff) >= 10 else "✅"
-    lines.append(f"{mark} {name}: bot {v} € | trh {med} € ({diff:+.0f} %, {len(ps)} ks)")
-    if abs(diff) >= 10:
-        upd.append(f"{name}={med}")
+    k = max(0, min(len(ps) - 1, round((len(ps) - 1) * PCT / 100)))
+    market = round(ps[k] / 5) * 5
+    base = values[name]                                    # predvolená cena v kóde
+    val = int(max(0.6 * base, min(1.4 * base, market)))   # poistka proti nezmyslom
+    val = round(val / 5) * 5
+    prev = int(old.get(name, base))
+    new[name] = val
+    diff = (val - prev) / prev * 100
+    mark = "🔺" if diff >= 5 else ("🔻" if diff <= -5 else "✅")
+    lines.append(f"{mark} {name}: {prev} → {val} € (medián inzerátov {round(statistics.median(ps) / 5) * 5} €, {len(ps)} ks)")
+    if abs(diff) >= 5:
+        upd.append(f"{name}: {prev} → {val} €")
+json.dump({"updated": time.time(), "percentil": PCT, "ceny": new}, open(jpath, "w", encoding="utf-8"),
+          ensure_ascii=False, indent=1)
 
-head = f"📊 Prieskum cien Bazoš {time.strftime('%d.%m.%Y')} – {len(seen)} inzerátov, {len(lines)} modelov"
-out = "\n".join([head, ""] + lines + ["", "Na úpravu (rozdiel 10 % a viac):"] + (upd or ["nič"]))
+head = (f"📊 Prieskum cien Bazoš {time.strftime('%d.%m.%Y')} – {len(seen)} inzerátov, {len(lines)} modelov\n"
+        f"Bot odteraz počíta s týmito cenami (reálny predaj ≈ {PCT}. percentil inzerátov). Nič netreba meniť.")
+out = "\n".join([head, ""] + lines + ["", "Zmeny o 5 % a viac:"] + (upd or ["žiadne"]))
 print("\n\n" + out)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ceny_report.txt"), "w", encoding="utf-8") as f:
     f.write(out + "\n")
