@@ -384,6 +384,16 @@ def detail_text(url):
     return re.sub(r"\s+", " ", d.get_text(" ", strip=True)) if d else ""
 
 
+# Okresy, ktoré bot vynecháva: Komárno, Dunajská Streda, Rimavská Sobota, Lučenec, Rožňava
+EXCLUDE_PSC = {
+    "945", "946", "947",          # Komárno, Kolárovo, Hurbanovo
+    "929", "930", "931",          # Dunajská Streda, Veľký Meder, Šamorín
+    "979", "980",                 # Rimavská Sobota, Hnúšťa, Tisovec
+    "984", "985", "986",          # Lučenec, Fiľakovo
+    "048", "049",                 # Rožňava, Dobšiná
+}
+
+
 def region(loc):
     """Vráti (oblasť, náklady elektronika, náklady auto, režim) alebo None (východ SK / neznáme PSČ).
     režim: 'osobne' = domáca zóna, 'znami' = Bratislavský kraj (kúpia známi), 'posta' = zvyšok západu a stredu."""
@@ -391,6 +401,8 @@ def region(loc):
     if not m:
         return None
     p3 = m.group(1)
+    if p3 in EXCLUDE_PSC:
+        return None                                                  # vylúčené okresy (ďaleko / nechcem)
     town = re.sub(r"\s*\d{3}\s?\d{2}\s*$", "", loc).strip() or p3
     if p3 in REGIONS:
         area, cost = REGIONS[p3]
