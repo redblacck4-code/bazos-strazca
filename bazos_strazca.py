@@ -428,7 +428,11 @@ def market_prices():
         return {}
     if mt != _prices["mtime"]:
         try:
-            _prices["data"] = json.loads(PRICES_FILE.read_text(encoding="utf-8")).get("ceny", {})
+            d = json.loads(PRICES_FILE.read_text(encoding="utf-8"))
+            data = d.get("ceny", {})
+            if d.get("v") != 2:      # starý formát = už reálna predajná cena -> prepočítaj na "bežnú" (predaj ~7 % pod ňou)
+                data = {k: round(v / SELL_FACTOR / 5) * 5 for k, v in data.items()}
+            _prices["data"] = data
         except Exception:
             _prices["data"] = {}
         _prices["mtime"] = mt
@@ -1213,12 +1217,9 @@ def loop(interval):
     print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
     last_cache_clear = time.time()
     while True:
+        auto_survey()
         q = quiet_seconds()
         if q:
-            auto_survey()
-            q = quiet_seconds()
-            if not q:
-                continue
             print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
             time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
             continue
@@ -1240,15 +1241,17 @@ def loop(interval):
             time.sleep(max(1, min(5, end - time.time())))
 
 
-SURVEY_DAYS = int(os.getenv("SURVEY_DAYS", "14"))   # prieskum cien automaticky každých X dní (v noci)
+SURVEY_WEEKDAY = int(os.getenv("SURVEY_WEEKDAY", "0"))   # prieskum cien každý týždeň: 0 = pondelok
+SURVEY_HOUR = int(os.getenv("SURVEY_HOUR", "20"))         # o 20:00
 
 
 _survey_try = [0.0]
 
 
 def auto_survey():
-    """V noci (od 2:00) spusti ceny.py, ak je posledný prieskum starší ako SURVEY_DAYS."""
-    if SURVEY_DAYS <= 0 or time.localtime().tm_hour < 2 or time.localtime().tm_hour >= QUIET_TO:
+    """Každý pondelok od 20:00 spusti ceny.py (raz za týždeň). Počas prieskumu (~15 min) bot čaká."""
+    now = time.localtime()
+    if now.tm_wday != SURVEY_WEEKDAY or now.tm_hour < SURVEY_HOUR:
         return
     if time.time() - _survey_try[0] < 20 * 3600:          # najviac jeden pokus za noc
         return
@@ -1256,7 +1259,7 @@ def auto_survey():
         last = json.loads(PRICES_FILE.read_text(encoding="utf-8")).get("updated", 0)
     except Exception:
         last = 0
-    if time.time() - last < SURVEY_DAYS * 86400:
+    if time.time() - last < 5 * 86400:                    # tento týždeň už prebehol
         return
     script = Path(__file__).with_name("ceny.py")
     if not script.exists():

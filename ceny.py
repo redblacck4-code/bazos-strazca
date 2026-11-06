@@ -1,7 +1,7 @@
 """Prieskum cien na Bazoši: python ceny.py
 Pre každý model zistí REÁLNU trhovú cenu (15. percentil inzerovaných cien funkčných kusov – drahšie
 inzeráty sa predávajú dlho alebo vôbec) a uloží ju do ceny.json. Bot ju odtiaľ automaticky používa.
-Bot spúšťa prieskum sám každých 14 dní v noci; ručne: python ceny.py
+Bot spúšťa prieskum sám každý pondelok o 20:00; ručne: python ceny.py
 Výsledok pošle do Telegramu a uloží do ceny_report.txt. Beží pomaly (~15 min), aby nás Bazoš nebrzdil."""
 import json, os, re, sys, time, random, statistics, requests
 import bazos_strazca as b
@@ -72,7 +72,10 @@ MIN_N = 6                                          # menej inzerátov = nespoľa
 here = os.path.dirname(os.path.abspath(__file__))
 jpath = os.path.join(here, "ceny.json")
 try:
-    old = json.load(open(jpath, encoding="utf-8")).get("ceny", {})
+    _d = json.load(open(jpath, encoding="utf-8"))
+    old = _d.get("ceny", {})
+    if _d.get("v") != 2:
+        old = {k: round(v / b.SELL_FACTOR / 5) * 5 for k, v in old.items()}
 except Exception:
     old = {}
 new = dict(old)
@@ -82,7 +85,7 @@ for name in sorted(prices, key=lambda n: (n.split()[0], n)):
     if len(ps) < MIN_N:
         continue
     k = max(0, min(len(ps) - 1, round((len(ps) - 1) * PCT / 100)))
-    market = round(ps[k] / 5) * 5
+    market = round(ps[k] / b.SELL_FACTOR / 5) * 5          # bot predáva ~7 % pod touto cenou -> predaj ≈ percentil
     base = values[name]                                    # predvolená cena v kóde
     val = int(max(0.6 * base, min(1.4 * base, market)))   # poistka proti nezmyslom
     val = round(val / 5) * 5
@@ -90,10 +93,10 @@ for name in sorted(prices, key=lambda n: (n.split()[0], n)):
     new[name] = val
     diff = (val - prev) / prev * 100
     mark = "🔺" if diff >= 5 else ("🔻" if diff <= -5 else "✅")
-    lines.append(f"{mark} {name}: {prev} → {val} € (medián inzerátov {round(statistics.median(ps) / 5) * 5} €, {len(ps)} ks)")
+    lines.append(f"{mark} {name}: {prev} → {val} €, reálny predaj ~{round(val * b.SELL_FACTOR / 5) * 5} € (medián inzerátov {round(statistics.median(ps) / 5) * 5} €, {len(ps)} ks)")
     if abs(diff) >= 5:
         upd.append(f"{name}: {prev} → {val} €")
-json.dump({"updated": time.time(), "percentil": PCT, "ceny": new}, open(jpath, "w", encoding="utf-8"),
+json.dump({"v": 2, "updated": time.time(), "percentil": PCT, "ceny": new}, open(jpath, "w", encoding="utf-8"),
           ensure_ascii=False, indent=1)
 
 head = (f"📊 Prieskum cien Bazoš {time.strftime('%d.%m.%Y')} – {len(seen)} inzerátov, {len(lines)} modelov\n"
