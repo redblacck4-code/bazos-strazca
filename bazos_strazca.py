@@ -51,6 +51,7 @@ SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
 PAGES = 3                    # koľko strán (po 20) prejsť v každej sekcii (celé SK, každé 2–3 min stačí)
 MIN_PROFIT = int(os.getenv("MIN_PROFIT", "80"))
 MIN_PROFIT_PCT = float(os.getenv("MIN_PROFIT_PCT", "0.10"))   # drahé veci: aspoň 10 % z ceny (viazané peniaze, riziko)
+MIN_PROFIT_ABS = int(os.getenv("MIN_PROFIT_ABS", "50"))      # absolútne minimum – pod 50 € sa neoplatí ísť
 SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné modely: +40 € k zisku
 SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
@@ -155,6 +156,7 @@ OTHER = [
 
 # Kúsky, ktoré vôbec neposielať
 HARD_EXCLUDE = re.compile(
+    r"(všetko|vsetko|vsetky|všetky)\s+(funguje\s+|funkčné\s+|ide\s+)?okrem|funguje\s+(všetko|vsetko)\s+okrem|"
     r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
     r"face\s*id\s*(nefung|nejde|nefunk|nie)|nefunguje\s*face|nezapne|nezapína|doska|"
     r"vodou|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic|obal\b|kryt\b|puzdro", re.I)
@@ -301,8 +303,8 @@ def console_extras(name, text):
 
 def required_profit(value, name=""):
     """Lacné veci (ovládače) by 60 € nikdy nedosiahli – pre ne stačí ~30 % z ceny."""
-    if value < 250:                                   # lacné veci (ovládače, AirPods…) – ~30 % z ceny
-        need = min(MIN_PROFIT, max(15, round(value * 0.3)))
+    if value < 250:                                   # lacné veci (hodinky, AirPods…) – aspoň 50 €
+        need = max(MIN_PROFIT_ABS, min(MIN_PROFIT, round(value * 0.3)))
     else:
         need = max(MIN_PROFIT, round(value * MIN_PROFIT_PCT))
     return need + (SLOW_EXTRA if SLOW_RE.search(name) else 0)
