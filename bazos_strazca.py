@@ -589,6 +589,19 @@ def seller_message(item, ev, text, mode="osobne"):
             f"prídem osobne a zaplatím v hotovosti. Ďakujem, {SIGNATURE}")
 
 
+TOP_PCT = float(os.getenv("TOP_PCT", "0.30"))     # 30 % a viac pod trhom = TOP ponuka
+FAST_RE = re.compile(r"iphone|macbook|ps5|playstation|xbox|switch|steam deck|galaxy s2\d", re.I)
+
+
+def top_banner(name, price, value):
+    """Hlavička pre výnimočné ponuky (≥30 % pod trhom)."""
+    if not value or price > (1 - TOP_PCT) * value:
+        return ""
+    pct = round((1 - price / value) * 100)
+    fast = " · rýchlo predajné" if FAST_RE.search(name) else ""
+    return f"🔥🔥 <b>TOP PONUKA – {pct} % pod trhom{fast}</b>\nBer hneď, dohodni stretnutie ešte dnes!\n"
+
+
 def send_telegram(msg, preview=True):
     token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
@@ -1087,7 +1100,8 @@ def process_vinted(state):
             cands.append((ev["profit"], price, prev, url, ev))
             if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
                 drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
-                send_telegram(f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
+                send_telegram(top_banner(ev["name"], price, ev["value"]) +
+                              f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
                               f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
                               f"ℹ️ {esc('; '.join(ev['notes']))}\n"
                               f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
@@ -1170,7 +1184,8 @@ def main():
             if not ev or ev["profit"] < required_profit(ev["value"], ev["name"]):
                 continue
             drop = f" (zlacnené z {prev} €)" if prev else ""
-            msg = (f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
+            msg = (top_banner(ev["name"], it["price"], ev["value"]) +
+                   f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
                    f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €) · 📍 {esc(it['loc'])}\n"
                    + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
                    + f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
