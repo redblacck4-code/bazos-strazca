@@ -99,9 +99,36 @@ for name in sorted(prices, key=lambda n: (n.split()[0], n)):
 json.dump({"v": 2, "updated": time.time(), "percentil": PCT, "ceny": new}, open(jpath, "w", encoding="utf-8"),
           ensure_ascii=False, indent=1)
 
+
+def push_github(data):
+    """Nahrá ceny_web.json do GitHub repozitára (pre stránku Flip ceny). Potrebuje GH_TOKEN."""
+    token = (os.getenv("GH_TOKEN") or "").strip("'\" ")
+    repo = os.getenv("GH_REPO", "redblacck4-code/bazos-strazca")
+    if not token:
+        return "GH_TOKEN nie je nastavený – stránka Flip ceny sa neaktualizuje"
+    import base64
+    url = f"https://api.github.com/repos/{repo}/contents/ceny_web.json"
+    h = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    try:
+        r = requests.get(url, headers=h, timeout=20)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+        body = {"message": f"ceny {time.strftime('%d.%m.%Y')}",
+                "content": base64.b64encode(json.dumps(data, ensure_ascii=False, indent=1).encode()).decode()}
+        if sha:
+            body["sha"] = sha
+        r = requests.put(url, headers=h, json=body, timeout=30)
+        return "ceny nahrané na GitHub ✅" if r.status_code in (200, 201) else f"GitHub chyba {r.status_code}: {r.text[:120]}"
+    except requests.RequestException as e:
+        return f"GitHub chyba: {e.__class__.__name__}"
+
+
+gh_status = push_github({"updated": time.time(), "ceny": new})
+print("\n" + gh_status)
+
 head = (f"📊 Prieskum cien Bazoš {time.strftime('%d.%m.%Y')} – {len(seen)} inzerátov, {len(lines)} modelov\n"
         f"Bot odteraz počíta s týmito cenami (reálny predaj ≈ {PCT}. percentil inzerátov). Nič netreba meniť.")
 out = "\n".join([head, ""] + lines + ["", "Zmeny o 5 % a viac:"] + (upd or ["žiadne"]))
+out += "\n\n🌐 Stránka Flip ceny: " + gh_status
 print("\n\n" + out)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ceny_report.txt"), "w", encoding="utf-8") as f:
     f.write(out + "\n")
