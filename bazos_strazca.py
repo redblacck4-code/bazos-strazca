@@ -616,6 +616,31 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def short_loc(loc):
+    """'Galanta 925 22' -> 'Galanta'"""
+    return re.sub(r"\s*\d{3}\s?\d{2}\s*$", "", loc or "").strip() or loc
+
+
+def short_notes(notes):
+    """Len to, čo mení rozhodnutie: varovania, opravy, batéria, neuvedené GB."""
+    keep = [n for n in notes if "⚠️" in n or "(−" in n or n.startswith("batéria") or "GB neuvedené" in n]
+    return "; ".join(keep)
+
+
+def compact_alert(icon, name, price, profit, value, url, where, notes="", prev=None):
+    """Krátka notifikácia: 2 riadky, názov je odkaz. 3. riadok len pri varovaní/oprave."""
+    top = value and price <= (1 - TOP_PCT) * value
+    if top:
+        icon = "🔥"
+    drop = f" ↓{prev:.0f}" if prev else ""
+    pct = f" · −{round((1 - price / value) * 100)} %" if top else ""
+    msg = (f"{icon} <a href=\"{url}\"><b>{esc(name)} · {price:.0f} €</b></a>{drop}\n"
+           f"<b>+{profit} €</b>{pct} · {esc(where)}")
+    if notes:
+        msg += f"\n{esc(notes)}"
+    return msg
+
+
 # =====================================================================
 #                              AUTÁ
 # =====================================================================
@@ -844,15 +869,13 @@ def process_cars(state):
                 notes.append(f"{'🤝 BA – ' if mode == 'znami' else 'cesta: '}{area} (−{travel} €)")
             if it["price"] < 0.55 * median:
                 notes.append("⚠️ podozrivo lacné – over VIN, nikdy neplať zálohu vopred")
-            drop = f" (zlacnené z {prev} €)" if prev else ""
+            drop = f" ↓{prev}" if prev else ""
             km_txt = (", " + f"{km:,}".replace(",", " ") + " km") if km else ""
-            msg = (f"🚗 <b>{esc(mdl[1])} {year}{km_txt}</b> – <b>{it['price']} €</b>{drop}\n"
-                   f"Zisk ~<b>{profit} €</b> (podobné ~{median} €) · 📍 {esc(it['loc'])}\n"
-                   f"ℹ️ {esc('; '.join(notes))}\n"
-                   f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
-            send_telegram(msg)
-            send_telegram(f"<code>{esc(car_seller_message(it, mdl[1], year, km, text))}</code>", preview=False)
-            send_telegram(f"<code>{it['id']}</code>", preview=False)
+            warn = "; ".join(n for n in notes if "⚠️" in n)
+            msg = (f"🚗 <a href=\"{it['url']}\"><b>{esc(mdl[1])} {year}{km_txt} · {it['price']} €</b></a>{drop}\n"
+                   f"<b>+{profit} €</b> · {esc(short_loc(it['loc']))}" + (f" · {esc(spec)}" if spec else "")
+                   + (f"\n{esc(warn)}" if warn else ""))
+            send_telegram(msg, preview=False)
             alerts += 1
         if stop:
             break                      # ďalšie strany už sú videné
@@ -1099,12 +1122,9 @@ def process_vinted(state):
                                else "⚠️ počet recenzií sa nezistil – pozri profil")
             cands.append((ev["profit"], price, prev, url, ev))
             if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
-                drop = f" (zlacnené z {prev:.0f} €)" if prev else ""
-                send_telegram(top_banner(ev["name"], price, ev["value"]) +
-                              f"🟢 <b>Vinted · {esc(ev['name'])}</b> – <b>{price:.0f} €</b>{drop}\n"
-                              f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €)\n"
-                              f"ℹ️ {esc('; '.join(ev['notes']))}\n"
-                              f"🔗 <a href=\"{url}\">Otvoriť na Vinted</a>")
+                stars = f" · ⭐{reviews}" if reviews is not None else ""
+                send_telegram(compact_alert("🟢", ev["name"], price, ev["profit"], ev["value"], url,
+                                            "Vinted" + stars, short_notes(ev["notes"]), prev), preview=False)
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
@@ -1171,28 +1191,13 @@ def main():
             ev = evaluate(it, text)
             if ev:
                 ev["profit"] -= travel
-                if mode == "znami":
-                    ev["notes"].append("🤝 kúpia známi v BA" + (f" (−{travel} €)" if travel else ""))
-                elif mode == "kosice":
-                    ev["notes"].append("🤝 kúpi kamarát v Košiciach" + (f" (−{travel} €)" if travel else ""))
-                elif mode == "posta":
-                    ev["notes"].append(f"📦 poslať poštou/Packetou na dobierku (−{travel} €)")
-                    if re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
-                        ev["notes"].append("⚠️ predajca chce iba osobný odber")
-                elif travel:
-                    ev["notes"].append(f"cesta: {area} (−{travel} €)")
+                if mode == "posta" and re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
+                    ev["notes"].append("⚠️ iba osobný odber")
             if not ev or ev["profit"] < required_profit(ev["value"], ev["name"]):
                 continue
-            drop = f" (zlacnené z {prev} €)" if prev else ""
-            msg = (top_banner(ev["name"], it["price"], ev["value"]) +
-                   f"💰 <b>{esc(ev['name'])}</b> – <b>{it['price']} €</b>{drop}\n"
-                   f"Zisk ~<b>{ev['profit']} €</b> (bežne ~{ev['value']} €) · 📍 {esc(it['loc'])}\n"
-                   + (f"ℹ️ {esc('; '.join(ev['notes']))}\n" if ev["notes"] else "")
-                   + f"🔗 <a href=\"{it['url']}\">Otvoriť inzerát</a>")
-            send_telegram(msg)
-            # správa pre predajcu – ťuknutím na text sa skopíruje
-            send_telegram(f"<code>{esc(seller_message(it, ev, text, mode))}</code>", preview=False)
-            send_telegram(f"<code>{it['id']}</code>", preview=False)
+            tag = {"posta": " 📦", "znami": " 🤝BA", "kosice": " 🤝KE"}.get(mode, "")
+            send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
+                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev), preview=False)
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
