@@ -627,18 +627,25 @@ def short_notes(notes):
     return "; ".join(keep)
 
 
-def compact_alert(icon, name, price, profit, value, url, where, notes="", prev=None):
-    """Krátka notifikácia: 2 riadky, názov je odkaz. 3. riadok len pri varovaní/oprave."""
+def compact_alert(icon, name, price, profit, value, url, where, notes="", prev=None, item_id=None, sell=None):
+    """Notifikácia: názov, mesto, cena, predajná cena, zisk, číslo inzerátu (ťuknutím sa skopíruje)."""
     top = value and price <= (1 - TOP_PCT) * value
     if top:
         icon = "🔥"
-    drop = f" ↓{prev:.0f}" if prev else ""
-    pct = f" · −{round((1 - price / value) * 100)} %" if top else ""
-    msg = (f"{icon} <a href=\"{url}\"><b>{esc(name)} · {price:.0f} €</b></a>{drop}\n"
-           f"<b>+{profit} €</b>{pct} · {esc(where)}")
+    sell = sell if sell is not None else round(value * SELL_FACTOR / 5) * 5
+    drop = f"  <i>(zlacnené z {prev:.0f})</i>" if prev else ""
+    pct = f"  (−{round((1 - price / value) * 100)} %)" if top else ""
+    lines = [f"{icon} <b>{esc(name)}</b>", f"📍 {esc(where)}", "",
+             f"💶 Cena:     <b>{price:.0f} €</b>{drop}",
+             f"🏷 Predám:  ~{sell} €",
+             f"✅ Zisk:    <b>+{profit} €</b>{pct}"]
     if notes:
-        msg += f"\n{esc(notes)}"
-    return msg
+        lines.append(f"⚠️ {esc(notes.replace('⚠️ ', ''))}")
+    lines.append("")
+    if item_id:
+        lines.append(f"📋 <code>{item_id}</code>")
+    lines.append(f"🔗 <a href=\"{url}\">Otvoriť inzerát</a>")
+    return "\n".join(lines)
 
 
 # =====================================================================
@@ -872,9 +879,9 @@ def process_cars(state):
             drop = f" ↓{prev}" if prev else ""
             km_txt = (", " + f"{km:,}".replace(",", " ") + " km") if km else ""
             warn = "; ".join(n for n in notes if "⚠️" in n)
-            msg = (f"🚗 <a href=\"{it['url']}\"><b>{esc(mdl[1])} {year}{km_txt} · {it['price']} €</b></a>{drop}\n"
-                   f"<b>+{profit} €</b> · {esc(short_loc(it['loc']))}" + (f" · {esc(spec)}" if spec else "")
-                   + (f"\n{esc(warn)}" if warn else ""))
+            msg = compact_alert("🚗", f"{mdl[1]} {year}{km_txt}", it["price"], profit, median, it["url"],
+                                short_loc(it["loc"]) + (f" · {spec}" if spec else ""), warn, prev, it["id"],
+                                sell=round(median * sell / 50) * 50)
             send_telegram(msg, preview=False)
             alerts += 1
         if stop:
@@ -1197,7 +1204,7 @@ def main():
                 continue
             tag = {"posta": " 📦", "znami": " 🤝BA", "kosice": " 🤝KE"}.get(mode, "")
             send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
-                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev), preview=False)
+                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]), preview=False)
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
