@@ -603,13 +603,17 @@ def top_banner(name, price, value):
 
 
 def send_telegram(msg, preview=True):
+    """preview: True/False, alebo URL inzerátu -> pod správou sa zobrazí jeho fotka."""
     token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         print(msg + "\n---")
         return
-    requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                  data={"chat_id": chat, "text": msg, "parse_mode": "HTML",
-                        "disable_web_page_preview": "false" if preview else "true"}, timeout=20)
+    data = {"chat_id": chat, "text": msg, "parse_mode": "HTML"}
+    if isinstance(preview, str):
+        data["link_preview_options"] = json.dumps({"url": preview, "prefer_large_media": True})
+    else:
+        data["disable_web_page_preview"] = "false" if preview else "true"
+    requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=20)
 
 
 def esc(s):
@@ -635,16 +639,15 @@ def compact_alert(icon, name, price, profit, value, url, where, notes="", prev=N
     sell = sell if sell is not None else round(value * SELL_FACTOR / 5) * 5
     drop = f"  <i>(zlacnené z {prev:.0f})</i>" if prev else ""
     pct = f"  (−{round((1 - price / value) * 100)} %)" if top else ""
-    lines = [f"{icon} <b>{esc(name)}</b>", f"📍 {esc(where)}", "",
+    lines = [f"{icon} <b>{esc(name)}</b>", f"📍 {esc(where)}",
+             f"🔗 <a href=\"{url}\">Otvoriť inzerát</a>", "",
              f"💶 Cena:     <b>{price:.0f} €</b>{drop}",
              f"🏷 Predám:  ~{sell} €",
              f"✅ Zisk:    <b>+{profit} €</b>{pct}"]
     if notes:
         lines.append(f"⚠️ {esc(notes.replace('⚠️ ', ''))}")
-    lines.append("")
     if item_id:
-        lines.append(f"📋 <code>{item_id}</code>")
-    lines.append(f"🔗 <a href=\"{url}\">Otvoriť inzerát</a>")
+        lines += ["", f"📋 <code>{item_id}</code>"]
     return "\n".join(lines)
 
 
@@ -882,7 +885,7 @@ def process_cars(state):
             msg = compact_alert("🚗", f"{mdl[1]} {year}{km_txt}", it["price"], profit, median, it["url"],
                                 short_loc(it["loc"]) + (f" · {spec}" if spec else ""), warn, prev, it["id"],
                                 sell=round(median * sell / 50) * 50)
-            send_telegram(msg, preview=False)
+            send_telegram(msg, preview=it["url"])
             alerts += 1
         if stop:
             break                      # ďalšie strany už sú videné
@@ -1131,7 +1134,7 @@ def process_vinted(state):
             if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
                 stars = f" · ⭐{reviews}" if reviews is not None else ""
                 send_telegram(compact_alert("🟢", ev["name"], price, ev["profit"], ev["value"], url,
-                                            "Vinted" + stars, short_notes(ev["notes"]), prev), preview=False)
+                                            "Vinted" + stars, short_notes(ev["notes"]), prev), preview=url)
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
@@ -1204,7 +1207,7 @@ def main():
                 continue
             tag = {"posta": " 📦", "znami": " 🤝BA", "kosice": " 🤝KE"}.get(mode, "")
             send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
-                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]), preview=False)
+                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]), preview=it["url"])
             alerts += 1
         time.sleep(1.5)
     alerts += process_cars(state)
