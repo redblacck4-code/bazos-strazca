@@ -317,6 +317,7 @@ BAT_RE = re.compile(r"(\d{2,3})\s?%")
 
 # ------------------------------------------------------------------ helpers
 _blocked_until = 0.0
+_offline = [0.0]          # čas začiatku výpadku internetu (0 = online)
 COOLDOWN = 600            # pri zablokovaní Bazošom pauza 10 minút
 _http = requests.Session()
 
@@ -331,9 +332,21 @@ def fetch(url):
         try:
             r = _http.get(url, headers=UA, timeout=20)
         except requests.RequestException as e:
+            if isinstance(e, requests.ConnectionError):
+                if not _offline[0]:
+                    _offline[0] = time.time()
+                    print(f"{time.strftime('%d.%m. %H:%M')} [!] bez internetu – čakám", file=sys.stderr)
+                return None
             print(f"[!] sieť: {e.__class__.__name__}", file=sys.stderr)
             time.sleep(5)
             continue
+        if _offline[0]:
+            mins = int((time.time() - _offline[0]) // 60)
+            print(f"{time.strftime('%d.%m. %H:%M')} internet je späť (výpadok {mins} min)", file=sys.stderr)
+            if mins >= 10:
+                send_telegram(f"⚠️ Bot bol {mins} min bez internetu (od {time.strftime('%H:%M', time.localtime(_offline[0]))}). "
+                              "Inzeráty z tohto času mohli prísť neskoro.", preview=False)
+            _offline[0] = 0.0
         if r.status_code == 200:
             return r.text
         if r.status_code in (403, 429, 503):
@@ -831,7 +844,7 @@ def process_cars(state):
         off = f"{page * 20}/" if page else ""
         html = fetch(f"{base}/{off}?hledat=&{LOC}cenaod={CAR_MIN_PRICE}&cenado={CAR_MAX_PRICE}")
         if not html:
-            if time.time() >= _blocked_until:
+            if time.time() >= _blocked_until and not _offline[0]:
                 print(f"[!] auto strana {page} sa nenačítala", file=sys.stderr)
             break
         items = parse_list(html, base)
@@ -1174,8 +1187,8 @@ def main():
         base = f"https://{sec}.bazos.sk"
         html = fetch(f"{base}/{off}{query}")
         if not html:
-            if time.time() < _blocked_until:
-                break                         # Bazoš brzdí – zvyšok behu preskoč
+            if time.time() < _blocked_until or _offline[0]:
+                break                         # Bazoš brzdí / nie je internet – zvyšok behu preskoč
             print(f"[!] {sec} {off or 'strana 0'} {query[:40]} sa nenačítala", file=sys.stderr)
             continue
         items = parse_list(html, base)
