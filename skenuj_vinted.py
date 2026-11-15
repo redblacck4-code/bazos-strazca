@@ -31,12 +31,11 @@ for q, max_price, *mn in b.VINTED_QUERIES:
         need = max(b.VINTED_MIN_PROFIT, b.required_profit(value, name))
         why = []
         if b.VINTED_ACC.search(title) or (name.startswith(("iPhone", "Galaxy")) and "Model:" not in full) \
-                or b.TITLE_PHOTO.search(title) or b.TITLE_PHOTO.search(full) or price < 0.3 * value:
-            continue                       # kryty, fotky, príslušenstvo – vôbec neukazuj
+                or b.TITLE_PHOTO.search(title) or b.TITLE_PHOTO.search(full) or price < 0.55 * value \
+                or b.too_cheap_console(name, value, tot, title) or b.is_accessory_or_bundle(name, title, tot, value):
+            continue                       # kryty, volanty, disky, hry, fotky a podozrivo lacné – bot ich preskakuje tiež
         if b.VINTED_BAD.search(title) or b.VINTED_BAD_STATE.search(full):
             why.append("poškodené/zlý stav")
-        if price < 0.55 * value:
-            why.append("podozrivo lacné")
         if profit < need:
             why.append(f"zisk pod {need} €")
         rows.append((profit, need, name, price, value, why, x["url"]))

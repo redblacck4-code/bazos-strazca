@@ -508,9 +508,16 @@ def estimate(title, text, raw=False):
     return r
 
 
+OTHER_BRAND = re.compile(r"\b(honor|huawei|xiaomi|redmi|poco|oppo|oneplus|one\s*plus|vivo|realme|motorola|moto\s*g|"
+                         r"pixel|nothing\s*phone|lenovo|asus|zte|nokia|sony\s*xperia|tcl|infinix|tecno|ulefone|doogee)\b", re.I)
+OUR_BRAND = re.compile(r"iphone|apple|macbook|samsung|galaxy|playstation|ps5|xbox|nintendo|steam\s*deck|garmin|dji|airpods|ipad", re.I)
+
+
 def _estimate_raw(title, text):
     """Vráti (názov, bežná cena, poznámky) alebo None."""
     notes = []
+    if OTHER_BRAND.search(title) and not OUR_BRAND.search(title):
+        return None                        # iná značka (Honor, Xiaomi…) – v popise len prirovnanie "ako Fold"
     c = console_estimate(title)
     if c:
         return c[0], c[1], notes
