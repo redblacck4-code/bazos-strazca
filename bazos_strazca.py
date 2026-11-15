@@ -226,8 +226,13 @@ CONSOLE_VALUES = {
 # Inzeráty, ktoré iba spomínajú konzolu (hry, príslušenstvo, PS Portal…)
 CONSOLE_JUNK = re.compile(
     r"portal|\bvr2?\b|psvr|headset|slúchad|sluchad|volant|stojan|nabíj|nabij|\bdok\b|dock|skin|cover|"
-    r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam|xbox)", re.I)
-GAMES = re.compile(r"\bhr(a|y|u|e|ou|ami)\b|\bhier\b|\bgames?\b|\bcd\b|\bdlc\b|\bkód\b|\bkod\b", re.I)
+    r"kábel|kabel|chladen|vymením\s+za|hľadám|hladam|\b(na|pre|for)\s+(ps\s?5|playstation|switch|steam|xbox)|"
+    # Vinted (PL/CZ/EN): volanty, disky, panely, kamery, slúchadlá, nabíjačky…
+    r"kierownic|\bwheel|thrustmaster|logitech|\bg29\b|\bg92[03]\b|\bt300|\bt248|pedał|pedal|shifter|"
+    r"dysk|\bssd\b|nvme|panel|osłon|oslon|obudow|naklejk|kamera|camera|słuchawk|sluchawk|ładowark|ladowark|stacja|"
+    r"\bdo\s+(ps\s?5|playstation|konsol)", re.I)
+GAMES = re.compile(r"\bhr(a|y|u|e|ou|ami)\b|\bhier\b|\bgames?\b|\bcd\b|\bdlc\b|\bkód\b|\bkod\b|"
+                   r"\bgr(a|y|ę)\b|\bgier\b|edycj|edition|collector|kolekcjon|steelbook|\bpl\s*ps|nowa\s+foli", re.I)
 CONSOLE_NAMES = {v[0] for v in CONSOLE_VALUES.values()}
 GAME_DESC = re.compile(r"^\W*(predám|predam|ponúkam|ponukam)?\s*(hru|hry|hra)\b|\bhr(u|a)\s+(na|pre)\s+(ps|playstation|switch|nintendo)", re.I)
 
@@ -267,7 +272,7 @@ def console_estimate(title):
     t = title.lower()
     if CONSOLE_JUNK.search(t) or (GAMES.search(t) and not BUNDLE.search(t)):
         return None
-    is_pad = re.search(r"dualsense|ovl[aá]d[aá][cč]|gamepad|joystick", t)
+    is_pad = re.search(r"dualsense|ovl[aá]d[aá][cč]|gamepad|joystick|\bpad\b|kontroler|controller|scuf", t)
     is_console = re.search(r"\+|konzol|xbox\s*series|ps5\s*(slim|pro|digital|disc)|playstation\s*5\s*(slim|pro|digital|disc)|"
                            r"\b(825|1)\s?(gb|tb)\b", t)
     if is_pad and not is_console:
