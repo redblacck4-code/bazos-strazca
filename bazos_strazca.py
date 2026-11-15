@@ -56,6 +56,30 @@ SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné
 SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
+
+
+def load_state():
+    """Načíta videné inzeráty. Poškodený súbor (napr. vypnutý mobil počas zápisu) nezastaví bota."""
+    for f in (STATE_FILE, STATE_FILE.with_suffix(".bak")):
+        try:
+            return json.loads(f.read_text())
+        except FileNotFoundError:
+            continue
+        except Exception:
+            print(f"[!] {f.name} je poškodený – skúšam zálohu", file=sys.stderr)
+    return {}
+
+
+def save_state(state):
+    """Bezpečný zápis: najprv do dočasného súboru, potom výmena (súbor nikdy neostane rozbitý)."""
+    tmp = STATE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state))
+    if STATE_FILE.exists():
+        try:
+            os.replace(STATE_FILE, STATE_FILE.with_suffix(".bak"))
+        except OSError:
+            pass
+    os.replace(tmp, STATE_FILE)
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
       "Accept-Language": "sk-SK,sk;q=0.9"}
@@ -318,6 +342,10 @@ BAT_RE = re.compile(r"(\d{2,3})\s?%")
 # ------------------------------------------------------------------ helpers
 _blocked_until = 0.0
 _offline = [0.0]          # čas začiatku výpadku internetu (0 = online)
+_empty = [0]              # koľkokrát po sebe bola stránka bez inzerátov
+_catchup = [True]         # po štarte / noci / výpadku prejdi viac strán, nech nič neujde
+CATCHUP_PAGES = int(os.getenv("CATCHUP_PAGES", "12"))
+_day = {"date": "", "alerts": 0, "offline_min": 0, "sent": False}
 COOLDOWN = 600            # pri zablokovaní Bazošom pauza 10 minút
 _http = requests.Session()
 
@@ -347,6 +375,9 @@ def fetch(url):
                 send_telegram(f"⚠️ Bot bol {mins} min bez internetu (od {time.strftime('%H:%M', time.localtime(_offline[0]))}). "
                               "Inzeráty z tohto času mohli prísť neskoro.", preview=False)
             _offline[0] = 0.0
+            _day["offline_min"] += mins
+            if mins >= 2:
+                _catchup[0] = True                    # dobehni inzeráty z času výpadku
         if r.status_code == 200:
             return r.text
         if r.status_code in (403, 429, 503):
@@ -356,6 +387,19 @@ def fetch(url):
         print(f"[!] HTTP {r.status_code}: {url[:60]}", file=sys.stderr)
         time.sleep(3)
     return None
+
+
+def forget(state, key, prev):
+    """Inzerát sa nepodarilo spracovať / poslať -> v ďalšom kole sa skúsi znova."""
+    if prev is None:
+        state.pop(key, None)
+    else:
+        state[key] = prev
+
+
+def interrupted():
+    """True, keď práve nie je internet alebo Bazoš brzdí (detail sa nenačítal naozaj)."""
+    return bool(_offline[0]) or time.time() < _blocked_until
 
 
 def few_new(items, state):
@@ -616,17 +660,43 @@ def top_banner(name, price, value):
 
 
 def send_telegram(msg, preview=True):
-    """preview: True/False, alebo URL inzerátu -> pod správou sa zobrazí jeho fotka."""
+    """preview: True/False, alebo URL inzerátu -> pod správou sa zobrazí jeho fotka.
+    Vráti True, keď Telegram správu prijal. Pri chybe skúsi znova bez fotky a nakoniec ako obyčajný text."""
     token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         print(msg + "\n---")
-        return
+        return True
+    token, chat = token.strip("'\" "), chat.strip("'\" ")
     data = {"chat_id": chat, "text": msg, "parse_mode": "HTML"}
     if isinstance(preview, str):
         data["link_preview_options"] = json.dumps({"url": preview, "prefer_large_media": True})
     else:
         data["disable_web_page_preview"] = "false" if preview else "true"
-    requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=20)
+    for attempt in range(4):
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=20)
+            if r.ok:
+                return True
+            print(f"{time.strftime('%d.%m. %H:%M')} [!] Telegram {r.status_code}: {r.text[:150]}", file=sys.stderr)
+            if r.status_code == 429:                          # príliš veľa správ naraz – počkaj, koľko Telegram chce
+                try:
+                    wait = int(r.json().get("parameters", {}).get("retry_after", 5))
+                except ValueError:
+                    wait = 5
+                time.sleep(min(wait, 60) + 1)
+                continue
+            if "link_preview_options" in data:                # 1. záloha: bez fotky
+                data.pop("link_preview_options")
+                data["disable_web_page_preview"] = "true"
+            elif "parse_mode" in data:                        # 2. záloha: obyčajný text bez formátovania
+                data.pop("parse_mode")
+                data["text"] = _html.unescape(re.sub(r"<[^>]+>", "", msg))
+            else:
+                return False
+        except requests.RequestException as e:
+            print(f"{time.strftime('%d.%m. %H:%M')} [!] Telegram: {e.__class__.__name__}", file=sys.stderr)
+            time.sleep(5)
+    return False
 
 
 def esc(s):
@@ -862,7 +932,11 @@ def process_cars(state):
             mdl = car_model(it["title"]) or car_model(head)
             if not mdl or CAR_BAD.search(head):
                 continue
-            text = detail_text(it["url"]) or it["snippet"]
+            text = detail_text(it["url"])
+            if not text and interrupted():
+                forget(state, it["id"], prev)
+                return alerts
+            text = text or it["snippet"]
             time.sleep(1)
             full = f"{it['title']} {text}"
             if CAR_BAD.search(full):
@@ -898,8 +972,10 @@ def process_cars(state):
             msg = compact_alert("🚗", f"{mdl[1]} {year}{km_txt}", it["price"], profit, median, it["url"],
                                 short_loc(it["loc"]) + (f" · {spec}" if spec else ""), warn, prev, it["id"],
                                 sell=round(median * sell / 50) * 50)
-            send_telegram(msg, preview=it["url"])
-            alerts += 1
+            if send_telegram(msg, preview=it["url"]):
+                alerts += 1
+            else:
+                forget(state, it["id"], prev)
         if stop:
             break                      # ďalšie strany už sú videné
         time.sleep(1.5)
@@ -1146,8 +1222,9 @@ def process_vinted(state):
             cands.append((ev["profit"], price, prev, url, ev))
             if len(cands) <= VINTED_MAX_ALERTS:          # posli HNEĎ, nečakaj na ostatné hľadania
                 stars = f" · ⭐{reviews}" if reviews is not None else ""
-                send_telegram(compact_alert("🟢", ev["name"], price, ev["profit"], ev["value"], url,
-                                            "Vinted" + stars, short_notes(ev["notes"]), prev), preview=url)
+                if not send_telegram(compact_alert("🟢", ev["name"], price, ev["profit"], ev["value"], url,
+                                                   "Vinted" + stars, short_notes(ev["notes"]), prev), preview=url):
+                    forget(state, key, prev)
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
@@ -1166,13 +1243,17 @@ def main():
     targeted = time.time() - _last_targeted >= TARGETED_MIN * 60
     if targeted:
         _last_targeted = time.time()
-    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    state = load_state()
     first_run = not state
     alerts = 0
     # zoznam stránok na prejdenie: najnovšie inzeráty v sekciách + cielené hľadania konzol
     pages = []
+    catchup = _catchup[0]
+    if catchup:
+        targeted = True
+        _last_targeted = time.time()
     for sec in SECTIONS:
-        for page in range(PAGES):
+        for page in range(CATCHUP_PAGES if catchup else PAGES):
             off = f"{page * 20}/" if page else ""
             pages.append((sec, f"?hledat=&{LOC}cenaod=50&cenado=", off))
     for sec, q in (EXTRA_SEARCHES if targeted else []):
@@ -1192,6 +1273,11 @@ def main():
             print(f"[!] {sec} {off or 'strana 0'} {query[:40]} sa nenačítala", file=sys.stderr)
             continue
         items = parse_list(html, base)
+        if query.startswith("?hledat=&") and not off:
+            _empty[0] = 0 if items else _empty[0] + 1
+            if _empty[0] == 10:                       # stránka sa načíta, ale bez inzerátov = Bazoš zmenil web
+                send_telegram("⚠️ Bazoš sa načítava, ale bot v ňom nenachádza inzeráty (asi zmena stránky). "
+                              "Napíš Claudovi, treba upraviť kód.", preview=False)
         if query.startswith("?hledat=&") and few_new(items, state):
             done_secs.add(sec)
         for it in items:
@@ -1199,6 +1285,8 @@ def main():
             if prev is not None and it["price"] >= prev:
                 continue                      # už videné a nezlacnelo
             state[it["id"]] = it["price"]
+            if first_run:
+                continue                      # úplne prvý beh: len si zapamätaj, nespamuj starými inzerátmi
             reg = region(it["loc"])
             if not reg or it["price"] <= 0:
                 continue
@@ -1209,7 +1297,11 @@ def main():
                 continue
             if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1], quick[0]):
                 continue                      # ani bez opráv to nevychádza
-            text = detail_text(it["url"]) or it["snippet"]
+            text = detail_text(it["url"])
+            if not text and interrupted():
+                forget(state, it["id"], prev)          # detail sa nenačítal pre výpadok – skús v ďalšom kole
+                break
+            text = text or it["snippet"]
             time.sleep(1)
             ev = evaluate(it, text)
             if ev:
@@ -1219,10 +1311,18 @@ def main():
             if not ev or ev["profit"] < required_profit(ev["value"], ev["name"]):
                 continue
             tag = {"posta": " 📦", "znami": " 🤝BA", "kosice": " 🤝KE"}.get(mode, "")
-            send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
-                                        short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]), preview=it["url"])
-            alerts += 1
+            if send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
+                                           short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]),
+                             preview=it["url"]):
+                alerts += 1
+            else:
+                forget(state, it["id"], prev)          # neodišlo – pošle sa v ďalšom kole
+        if interrupted():
+            break
         time.sleep(1.5)
+    if catchup and not interrupted():
+        _catchup[0] = False                           # dobehnuté
+        print(f"{time.strftime('%d.%m. %H:%M')} Dobehnuté inzeráty po prestávke/výpadku")
     alerts += process_cars(state)
     if VINTED_ON and time.time() - _last_vinted >= VINTED_SEC:
         _last_vinted = time.time()
@@ -1233,7 +1333,8 @@ def main():
     # drž stav menší – nechaj posledných 15000 ID
     if len(state) > 15000:
         state = dict(list(state.items())[-15000:])
-    STATE_FILE.write_text(json.dumps(state))
+    save_state(state)
+    _day["alerts"] += alerts
     blocked = " · Bazoš brzdí, pauza" if time.time() < _blocked_until else ""
     print(f"{time.strftime('%d.%m. %H:%M')} Hotovo. Upozornení: {alerts}{' (prvý beh)' if first_run else ''}{blocked}")
 
@@ -1257,33 +1358,55 @@ def quiet_seconds():
     return left if left > 0 else left + 86400
 
 
+def daily_summary():
+    """Pred nočným kľudom pošle krátky prehľad dňa. Keď večer nepríde, bot nebeží – treba ho skontrolovať."""
+    today = time.strftime("%d.%m.")
+    if _day["date"] != today or _day["sent"]:
+        return
+    _day["sent"] = True
+    off = _day["offline_min"]
+    send_telegram(f"🌙 Bot beží ✅ Dnes {_day['alerts']} upozornení"
+                  + (f", bez internetu spolu {off} min" if off else ", internet celý deň OK") + ".", preview=False)
+
+
 def loop(interval):
     """Nepretržitý režim pre server/VPS/starý mobil: prechádza Bazoš každých `interval` sekúnd."""
     print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
     last_cache_clear = time.time()
     while True:
-        auto_survey()
-        q = quiet_seconds()
-        if q:
-            print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
-            time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
-            continue
-        start = time.time()
         try:
-            main()
-        except Exception as e:                      # nech jedna chyba nezastaví strážcu
-            print(f"[!] chyba v behu: {e}", file=sys.stderr)
-        if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
-            _comp_cache.clear()
-            last_cache_clear = time.time()
-        wait = interval * random.uniform(0.8, 1.2) - (time.time() - start)   # nepravidelný rytmus
-        if random.random() < BREAK_CHANCE:
-            wait = random.uniform(2, 4) * 60                                 # občasná dlhšia prestávka
-            print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
-        end = time.time() + max(10, wait)
-        while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
-            vinted_tick()
-            time.sleep(max(1, min(5, end - time.time())))
+            today = time.strftime("%d.%m.")
+            if _day["date"] != today and not quiet_seconds():
+                _day.update(date=today, alerts=0, offline_min=0, sent=False)
+            auto_survey()
+            q = quiet_seconds()
+            if q:
+                daily_summary()
+                print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
+                time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
+                _catchup[0] = True                    # ráno dobehni nočné inzeráty
+                continue
+            start = time.time()
+            try:
+                main()
+            except Exception as e:                      # nech jedna chyba nezastaví strážcu
+                print(f"{time.strftime('%d.%m. %H:%M')} [!] chyba v behu: {e}", file=sys.stderr)
+            if time.time() - last_cache_clear > 3600:   # porovnania áut obnov raz za hodinu
+                _comp_cache.clear()
+                last_cache_clear = time.time()
+            wait = interval * random.uniform(0.8, 1.2) - (time.time() - start)   # nepravidelný rytmus
+            if random.random() < BREAK_CHANCE:
+                wait = random.uniform(2, 4) * 60                                 # občasná dlhšia prestávka
+                print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
+            end = time.time() + max(10, wait)
+            while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
+                vinted_tick()
+                time.sleep(max(1, min(5, end - time.time())))
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:                          # posledná poistka – slučka nesmie nikdy skončiť
+            print(f"{time.strftime('%d.%m. %H:%M')} [!] neočakávaná chyba: {e}", file=sys.stderr)
+            time.sleep(30)
 
 
 SURVEY_WEEKDAY = int(os.getenv("SURVEY_WEEKDAY", "0"))   # prieskum cien každý týždeň: 0 = pondelok
@@ -1324,10 +1447,11 @@ def vinted_tick():
         return
     _last_vinted = time.time()
     try:
-        state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+        state = load_state()
         n = process_vinted(state)
-        STATE_FILE.write_text(json.dumps(state))
+        save_state(state)
         if n:
+            _day["alerts"] += n
             print(f"{time.strftime('%d.%m. %H:%M')} Vinted: upozornení {n}")
     except Exception as e:
         print(f"[!] Vinted chyba: {e}", file=sys.stderr)

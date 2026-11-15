@@ -9,10 +9,12 @@ try:
 except FileNotFoundError:
     sys.exit("Log ~/strazca.log neexistuje.")
 
-outages, times, alerts = [], [], 0
+outages, times, alerts, tg_err = [], [], 0, []
 for ln in lines:
     if not ln.startswith(day):
         continue
+    if "Telegram" in ln and "[!]" in ln:
+        tg_err.append(ln)
     if "bez internetu" in ln or "internet je späť" in ln:
         outages.append(ln)
     m = re.match(r"\S+ (\d\d):(\d\d) ", ln)
@@ -25,6 +27,9 @@ for ln in lines:
 print(f"=== {day} ===")
 print("\nVýpadky internetu:")
 print("\n".join("  " + o for o in outages) if outages else "  žiadne ✅")
+
+print("\nChyby Telegramu (správa neodišla):")
+print("\n".join("  " + e for e in tg_err[-5:]) if tg_err else "  žiadne ✅")
 
 gaps = []
 for prev, cur in zip(times, times[1:]):
