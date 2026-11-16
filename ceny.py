@@ -53,7 +53,7 @@ DETAIL_CHECKS = int(os.getenv("CENY_DETAIL", "5"))   # koľko najlacnejších ku
 
 def bad(it, name, value):
     full = f"{it['title']} {it['snippet']}"
-    if FAULTY.search(full):
+    if b.neg_search(FAULTY, full):
         return True
     if b.HARD_EXCLUDE.search(full) or b.PHOTO_SCAM.search(full) or b.TITLE_PHOTO.search(it["title"]):
         return True
@@ -112,8 +112,8 @@ for name in prices:
             checked += 1
             time.sleep(random.uniform(1, 2))
             txt = b.detail_text(url)
-            if txt and (FAULTY.search(txt) or any(rx.search(txt) for rx, _, _ in b.DAMAGE)
-                        or b.HARD_EXCLUDE.search(txt) or b.PHOTO_SCAM.search(txt)):
+            if txt and (b.neg_search(FAULTY, txt) or any(b.neg_search(rx, txt) for rx, _, _ in b.DAMAGE)
+                        or b.neg_search(b.HARD_EXCLUDE, txt) or b.PHOTO_SCAM.search(txt)):
                 dropped += 1
                 continue
         keep.append(price)

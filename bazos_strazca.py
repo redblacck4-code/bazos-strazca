@@ -182,8 +182,21 @@ OTHER = [
 HARD_EXCLUDE = re.compile(
     r"(všetko|vsetko|vsetky|všetky)\s+(funguje\s+|funkčné\s+|ide\s+)?okrem|funguje\s+(všetko|vsetko)\s+okrem|"
     r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
-    r"face\s*id\s*(nefung|nejde|nefunk|nie)|nefunguje\s*face|nezapne|nezapína|doska|"
-    r"vodou|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic|obal\b|kryt\b|puzdro", re.I)
+    r"face\s*id\s*(nefung|nejde|nefunk)|nefunguje\s*face|nezapne|nezapína|(základn\w*\s*)?dosk\w*\s*(nefunk|odišl|zl[aá]|vadn|chyb)|"
+    r"pod\s*vodou|vo\s*vode|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic", re.I)
+# Príslušenstvo v NADPISE ("Kryt na iPhone 15", "Obal pre…") – v popise ("dám aj puzdro") nevadí
+TITLE_ACCESSORY = re.compile(r"^\W*(nov[ýéá]\s+|originál\w*\s+)?(obal|kryt|puzdr|púzdr|sklo|fólia|folia|nabíjač|nabijac|kábel|kabel|držiak|remienok)|"
+                             r"\b(obal|kryt|puzdro|púzdro|sklo|fólia)\s+(na|pre|for)\b", re.I)
+_NEG = re.compile(r"(\bnie\b|\bnikdy\b|\bnebol\w*|\bnebola\b|\bnebolo\b|\bbez\b|\bani\b|\bnemá\b|\bnemal\w*|\bžiadn\w*|\bziadn\w*|"
+                  r"\bneboli\b|\bnik\w*|\bnehrozí\b|\bno\b)[^.,;!?]{0,25}$", re.I)
+
+
+def neg_search(rx, text):
+    """Ako rx.search, ale ignoruje zhody so záporom pred nimi ("nebol pod vodou", "nikdy nepraskol")."""
+    for m in rx.finditer(text):
+        if not _NEG.search(text[max(0, m.start() - 30):m.start()]):
+            return m
+    return None
 # "Predávam fotku telefónu, nie telefón", "len krabica" a pod. (SK/CZ/PL/EN/DE/IT/FR/ES)
 PHOTO_SCAM = re.compile(
     r"(predávam|predavam|prodávám|prodavam|sprzedaj\w*|selling|sell|verkaufe|vendo|vends?)\s+(len\s+|iba\s+|jen\s+|pouze\s+|tylko\s+|only\s+|nur\s+|solo\s+|seulement\s+)?"
@@ -199,9 +212,9 @@ TITLE_PHOTO = re.compile(
     r"(značka|znacka|brand|marka):\s*(zdj[eę]ci\w*|foto\w*|photo|picture|obr[aá]z\w*|bild)\b", re.I)
 # Odpočty za opravy (€)
 DAMAGE = [
-    (re.compile(r"(displej|obrazovk|lcd)[^.]{0,40}(rozbit|prask|pukn|poškod|čiar|nefunk)|"
-                r"(rozbit|prask|pukn)\w*[^.]{0,25}(displej|obrazovk)", re.I), 110, "displej"),
-    (re.compile(r"(zadn\w* skl|chrbt)[^.]{0,30}(rozbit|prask|pukn)|(rozbit|prask|pukn)\w*[^.]{0,25}zadn", re.I), 50, "zadné sklo"),
+    (re.compile(r"(displej|obrazovk|lcd)[^.]{0,40}(?<!ne)(rozbit|prask|pukn|poškod|čiar|nefunk)|"
+                r"(?<!ne)(rozbit|prask|pukn)\w*[^.]{0,25}(displej|obrazovk)", re.I), 110, "displej"),
+    (re.compile(r"(zadn\w* skl|chrbt)[^.]{0,30}(?<!ne)(rozbit|prask|pukn)|(?<!ne)(rozbit|prask|pukn)\w*[^.]{0,25}zadn", re.I), 50, "zadné sklo"),
     (re.compile(r"neorigin|menen\w* displej|vymenen\w* displej|neznám\w* diel", re.I), 40, "neoriginálny diel"),
 ]
 # ------------------------------------------------ konzoly a ovládače (€)
@@ -518,9 +531,26 @@ OTHER_BRAND = re.compile(r"\b(honor|huawei|xiaomi|redmi|poco|oppo|oneplus|one\s*
 OUR_BRAND = re.compile(r"iphone|apple|macbook|samsung|galaxy|playstation|ps5|xbox|nintendo|steam\s*deck|garmin|dji|airpods|ipad", re.I)
 
 
+_NORM = [(re.compile(r"\b(?:i|aj|ay)\s+ph?one\b", re.I), "iphone"), (re.compile(r"\bip?hone(?=\d)", re.I), "iphone "),
+         (re.compile(r"\bmac\s+book\b", re.I), "macbook"), (re.compile(r"\bplay\s+station\b", re.I), "playstation"),
+         (re.compile(r"\bmac\s*book(?=air|pro)", re.I), "macbook "), (re.compile(r"\bapple\s*watch(?=\d)", re.I), "apple watch ")]
+_IPH_FALLBACK = re.compile(r"(?:iphone|model)\D{0,20}?\b(1[2-8])\s*(pro\s*max|pro|plus|mini|e)?\b", re.I)
+
+
+BRAND_HINT = re.compile(r"iphone|macbook|galaxy|samsung|playstation|ps\s?5|xbox|nintendo|switch|steam\s*deck|"
+                        r"garmin|apple\s*watch|airpods|ipad|\bdji\b|mac\s*mini|imac", re.I)
+
+
+def normalize(s):
+    for rx, rep in _NORM:
+        s = rx.sub(rep, s)
+    return s
+
+
 def _estimate_raw(title, text):
     """Vráti (názov, bežná cena, poznámky) alebo None."""
     notes = []
+    title, text = normalize(title), normalize(text or "")
     if OTHER_BRAND.search(title) and not OUR_BRAND.search(title):
         return None                        # iná značka (Honor, Xiaomi…) – v popise len prirovnanie "ako Fold"
     c = console_estimate(title)
@@ -528,6 +558,8 @@ def _estimate_raw(title, text):
         return c[0], c[1], notes
     t = f"{title} {text}".lower()
     m = MODEL_RE.search(t)
+    if not m and "iphone" in t:
+        m = _IPH_FALLBACK.search(t)                # "Predám iPhone … Model: 15 Pro"
     if m:
         if m.group(1):
             model = m.group(1) + (" " + re.sub(r"\s+", " ", m.group(2).lower()) if m.group(2) else "")
@@ -539,6 +571,9 @@ def _estimate_raw(title, text):
             return None
         g = GB_RE.search(t)
         gb = (1024 if g.group(2) else int(g.group(1))) if g else None
+        if gb is None:                                   # "14 Pro Max 256" bez "GB"
+            g2 = re.search(r"\b(128|256|512)\b(?!\s*(€|eur|,-|e\b|%|mah|hz|km|x))", t)
+            gb = int(g2.group(1)) if g2 else None
         if gb is None or gb not in prices:
             if gb is not None and gb < min(prices):
                 return None          # 64 GB a pod – ignorujeme
@@ -555,7 +590,8 @@ def _estimate_raw(title, text):
 
 def evaluate(item, text):
     full = f"{item['title']} {text}"
-    if HARD_EXCLUDE.search(full) or PHOTO_SCAM.search(full) or TITLE_PHOTO.search(item["title"]):
+    if neg_search(HARD_EXCLUDE, full) or PHOTO_SCAM.search(full) or TITLE_PHOTO.search(item["title"]) \
+            or TITLE_ACCESSORY.search(item["title"]):
         return None
     est = estimate(item["title"], text)
     if not est:
@@ -567,7 +603,7 @@ def evaluate(item, text):
         return None
     repair = 0
     for rx, cost, label in DAMAGE:
-        if rx.search(full):
+        if neg_search(rx, full):
             repair += cost
             notes.append(f"{label} (−{cost} €)")
     bats = [int(b) for b in BAT_RE.findall(full) if 50 <= int(b) <= 100]
@@ -1199,7 +1235,7 @@ def process_vinted(state):
             quick = estimate(title, title)
             if TITLE_PHOTO.search(x.get("title") or "") or TITLE_PHOTO.search(full):
                 continue                       # "Foto iPhonu 17 Pro", značka "zdjęcie" = predáva obrázok
-            if not quick or VINTED_ACC.search(title) or VINTED_BAD.search(title) or VINTED_BAD_STATE.search(full):
+            if not quick or VINTED_ACC.search(title) or neg_search(VINTED_BAD, title) or VINTED_BAD_STATE.search(full):
                 continue
             # telefóny majú na Vinted v atribútoch "Model: …" – kryty a príslušenstvo nie
             if quick[0].startswith(("iPhone", "Galaxy", "Pixel", "Xiaomi")) and "Model:" not in full:
@@ -1214,7 +1250,7 @@ def process_vinted(state):
             if reviews is not None and reviews < VINTED_MIN_REVIEWS:
                 continue                       # predajca bez recenzií – typický scam účet
             text = desc or title
-            if VINTED_BAD.search(text):
+            if neg_search(VINTED_BAD, text):
                 continue                       # na Vinted iba nepoškodené kusy (batéria je OK)
             if VINTED_SCAM.search(f"{title} {text}") or PHOTO_SCAM.search(f"{title} {text}"):
                 continue                       # platba/kontakt mimo Vinted = typický podvod
@@ -1304,12 +1340,20 @@ def main():
                 continue
             area, travel, _, mode = reg
             quick = estimate(it["title"], it["snippet"])
+            text = None
+            if not quick and it["price"] >= 80 and BRAND_HINT.search(normalize(it["title"] + " " + it["snippet"])):
+                text = detail_text(it["url"])          # model je len v celom popise ("Predám iPhone, model 15 Pro…")
+                if not text and interrupted():
+                    forget(state, it["id"], prev)
+                    break
+                quick = estimate(it["title"], text) if text else None
             if quick and (too_cheap_console(quick[0], quick[1], it["price"], it["snippet"])
                           or is_accessory_or_bundle(quick[0], it["title"], it["price"], quick[1])):
                 continue
             if not quick or quick[1] * SELL_FACTOR - it["price"] - travel < required_profit(quick[1], quick[0]):
                 continue                      # ani bez opráv to nevychádza
-            text = detail_text(it["url"])
+            if text is None:
+                text = detail_text(it["url"])
             if not text and interrupted():
                 forget(state, it["id"], prev)          # detail sa nenačítal pre výpadok – skús v ďalšom kole
                 break
