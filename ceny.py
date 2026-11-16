@@ -6,6 +6,21 @@ Výsledok pošle do Telegramu a uloží do ceny_report.txt. Beží pomaly (~15 m
 import json, os, re, sys, time, random, statistics, requests
 import bazos_strazca as b
 
+
+def _load_env():
+    """Pri ručnom spustení (python ceny.py) si načíta tokeny zo štartovacieho skriptu bota."""
+    f = os.path.expanduser("~/.termux/boot/strazca.sh")
+    try:
+        for ln in open(f, encoding="utf-8"):
+            m = re.match(r"\s*export\s+([A-Z_]+)=(.*)$", ln.strip())
+            if m and not os.getenv(m.group(1)):
+                os.environ[m.group(1)] = m.group(2).strip().strip("'\"")
+    except OSError:
+        pass
+
+
+_load_env()
+
 # (sekcia Bazoša, hľadaný text, počet strán po 20)
 Q = []
 for n in range(12, 19):
