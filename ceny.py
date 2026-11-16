@@ -23,8 +23,23 @@ Q += [("pc", q, 2) for q in ("ps5", "playstation 5", "xbox series x", "steam dec
 Q += [("foto", "dji", 2), ("pc", "dji", 1)]
 
 
+# Vadné / nekompletné kusy – do trhovej ceny sa nerátajú (SK/CZ)
+FAULTY = b.re.compile(
+    r"nefunk|nefung|nejde|nezap|nenab|nenač|pokazen|poškoden|poskoden|rozbit|prask|pukn|ohnut|zlomen|"
+    r"vadn|chyb[auy]\b|porucha|závad|zavad|na\s*opravu|na\s*diely|na\s*náhradné|do\s*servis|"
+    r"zablok|blokovan|icloud|bez\s*face\s*id|face\s*id\s*(nie|ne)|true\s*tone\s*(nie|ne)|"
+    r"neorigin|vymenen\w*\s*(displej|obrazovk)|menen\w*\s*(displej|obrazovk)|servisn\w*\s*(batéri|bateri|displej)|"
+    r"mikrof[oó]n\w*\s*(nefunk|nejde|ne)|reproduktor\w*\s*(nefunk|nejde|ne)|tlačidl\w*\s*(nefunk|nejde)|"
+    r"\bbez\s*(nabíjač|nabijac|ovládač|ovladac|zdroj|nabíjačky)|iba\s*(telo|konzol)|len\s*(telo|konzol)|"
+    r"čiar[ay]?\s*(na|v)\s*displej|vypálen|burn|mŕtv\w*\s*pixel|batéri\w*\s*(servis|vymeniť|odchádza)|"
+    r"\b[4-7]\d\s?%\s*(batéri|bateri|kapacit|zdrav)", b.re.I)
+DETAIL_CHECKS = int(os.getenv("CENY_DETAIL", "5"))   # koľko najlacnejších kusov na model overiť v celom popise
+
+
 def bad(it, name, value):
     full = f"{it['title']} {it['snippet']}"
+    if FAULTY.search(full):
+        return True
     if b.HARD_EXCLUDE.search(full) or b.PHOTO_SCAM.search(full) or b.TITLE_PHOTO.search(it["title"]):
         return True
     if any(rx.search(full) for rx, _, _ in b.DAMAGE):
@@ -62,10 +77,33 @@ for i, (sec, q, npages) in enumerate(Q, 1):
             name, value, _ = est
             if bad(it, name, value):
                 continue
-            prices.setdefault(name, []).append(it["price"])
+            prices.setdefault(name, []).append((it["price"], it["url"]))
             values[name] = value
         if len(items) < 20:
             break
+
+# Najlacnejšie kusy určujú cenu – over ich celý popis, či nie sú vadné (v úryvku to často nie je)
+print("\nOverujem najlacnejšie kusy v celom popise…")
+dropped = 0
+for name in prices:
+    lst = sorted(prices[name])
+    if len(lst) < 6:                                      # málo kusov – model sa aj tak nepoužije
+        prices[name] = [p for p, _ in lst]
+        continue
+    limit = min(DETAIL_CHECKS, round(len(lst) * 0.15) + 2)   # stačí overiť kusy okolo 15. percentilu
+    keep, checked = [], 0
+    for price, url in lst:
+        if checked < limit:
+            checked += 1
+            time.sleep(random.uniform(1, 2))
+            txt = b.detail_text(url)
+            if txt and (FAULTY.search(txt) or any(rx.search(txt) for rx, _, _ in b.DAMAGE)
+                        or b.HARD_EXCLUDE.search(txt) or b.PHOTO_SCAM.search(txt)):
+                dropped += 1
+                continue
+        keep.append(price)
+    prices[name] = keep
+print(f"Vyradených vadných / nekompletných kusov: {dropped}")
 
 PCT = int(os.getenv("CENY_PERCENTIL", "15"))      # 15 = cena, za ktorú sa reálne predá (drahšie inzeráty visia)
 MIN_N = 6                                          # menej inzerátov = nespoľahlivé, ponechá sa stará cena
@@ -86,6 +124,7 @@ for name in sorted(prices, key=lambda n: (n.split()[0], n)):
         continue
     k = max(0, min(len(ps) - 1, round((len(ps) - 1) * PCT / 100)))
     market = round(ps[k] / b.SELL_FACTOR / 5) * 5          # bot predáva ~7 % pod touto cenou -> predaj ≈ percentil
+    market = max(market, round(0.8 * statistics.median(ps) / 5) * 5)   # pri málo kusoch jeden lacný (vadný) neťahá cenu dole
     base = values[name]                                    # predvolená cena v kóde
     val = int(max(0.6 * base, min(1.4 * base, market)))   # poistka proti nezmyslom
     val = round(val / 5) * 5
