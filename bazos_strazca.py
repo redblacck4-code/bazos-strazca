@@ -53,7 +53,7 @@ MIN_PROFIT = int(os.getenv("MIN_PROFIT", "80"))
 MIN_PROFIT_PCT = float(os.getenv("MIN_PROFIT_PCT", "0.10"))   # drahé veci: aspoň 10 % z ceny (viazané peniaze, riziko)
 MIN_PROFIT_ABS = int(os.getenv("MIN_PROFIT_ABS", "50"))      # absolútne minimum – pod 50 € sa neoplatí ísť
 SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné modely: +40 € k zisku
-SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)
+SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)   # Fold/Flip 8 tiež
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
 
@@ -98,6 +98,7 @@ IPHONE = {
     "15 pro": {128: 505, 256: 540, 512: 580, 1024: 620}, "15 pro max": {256: 580, 512: 630, 1024: 680},
     "16e": {128: 420, 256: 470}, "16": {128: 550, 256: 600, 512: 650}, "16 plus": {128: 590, 256: 640, 512: 690},
     "16 pro": {128: 650, 256: 700, 512: 760, 1024: 820}, "16 pro max": {256: 770, 512: 830, 1024: 900},
+    "17e": {128: 450, 256: 500},                       # marec 2026 (nové ~699 €)
     "17": {256: 760, 512: 860}, "air": {256: 700, 512: 800},
     "17 pro": {256: 950, 512: 1080}, "17 pro max": {256: 1080, 512: 1200},
     # iPhone 18 (jeseň 2026 – zatiaľ len Pro/Pro Max; nové v obchode 1489/1639 €)
@@ -129,6 +130,7 @@ OTHER = [
     (r"(?=.*\bdji\b).*mini\s*4\s*k", "DJI Mini 4K", 200),
     (r"(?=.*\bdji\b).*mini\s*3\s*pro", "DJI Mini 3 Pro", 400),
     (r"(?=.*\bdji\b).*mini\s*3\b", "DJI Mini 3", 280),
+    (r"macbook\s*neo", "MacBook Neo", 450),                       # marec 2026, lacný MacBook (nové 599 $)
     (r"macbook\s*air.*\bm5\b", "MacBook Air M5", 1125),          # nový v obchode od ~1288 €
     (r"macbook\s*air.*\bm4\b", "MacBook Air M4", 940),
     (r"macbook\s*air.*\bm3\b", "MacBook Air M3", 780),
@@ -142,27 +144,38 @@ OTHER = [
     (r"macbook\s*pro.*\bm3\b(?!\s*(pro|max))", "MacBook Pro 14 M3", 900),
     (r"macbook\s*pro.*\bm2\b", "MacBook Pro 13 M2", 700),
     (r"macbook\s*pro.*\bm1\b", "MacBook Pro 13 M1", 580),
+    # Galaxy S26 (február 2026; nové 1000 / 1250 / 1450 €)
+    (r"galaxy\s*s26\s*ultra|\bs26\s*ultra", "Galaxy S26 Ultra", 850),
+    (r"\bs26\s*(\+|plus)", "Galaxy S26+", 650), (r"(galaxy\s*)?\bs26\b", "Galaxy S26", 560),
     (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 680),
     (r"galaxy\s*s24\s*ultra|\bs24\s*ultra", "Galaxy S24 Ultra", 600),
     (r"galaxy\s*s23\s*ultra|\bs23\s*ultra", "Galaxy S23 Ultra", 400),
     (r"\bs25\s*(\+|plus)", "Galaxy S25+", 600), (r"\bs25\s*fe\b", "Galaxy S25 FE", 420), (r"(galaxy\s*)?\bs25\b", "Galaxy S25", 520),
     (r"\bs24\s*(\+|plus)", "Galaxy S24+", 450), (r"\bs24\s*fe\b", "Galaxy S24 FE", 330), (r"(galaxy\s*)?\bs24\b", "Galaxy S24", 330),
     (r"\bs23\s*(\+|plus)", "Galaxy S23+", 330), (r"\bs23\s*fe\b", "Galaxy S23 FE", 230), (r"(galaxy\s*)?\bs23\b", "Galaxy S23", 260),
+    # Fold8 / Flip8 (august 2026)
+    (r"fold\s*8\s*ultra", "Galaxy Z Fold 8 Ultra", 1400),
+    (r"z\s*fold\s*8|fold\s*8", "Galaxy Z Fold 8", 1200),
+    (r"z\s*flip\s*8|flip\s*8", "Galaxy Z Flip 8", 650),
     (r"z\s*fold\s*7|fold\s*7", "Galaxy Z Fold 7", 900),
     (r"z\s*fold\s*6|fold\s*6", "Galaxy Z Fold 6", 600),
     (r"z\s*fold\s*5|fold\s*5", "Galaxy Z Fold 5", 450),
     (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 560),
     (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 370),
     (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 250),
+    (r"watch\s*ultra\s*4", "Apple Watch Ultra 4", 650),            # september 2026
     (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 445),
     (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 265),
+    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?12\b", "Apple Watch Series 12", 330),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?10\b", "Apple Watch Series 10", 250),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?9\b", "Apple Watch Series 9", 190),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 135),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*se\b", "Apple Watch SE", 110),
     # --- Garmin ---
+    (r"f[eē]nix\s*9\s*pro", "Garmin Fenix 9 Pro", 900),           # august 2026
+    (r"f[eē]nix\s*9", "Garmin Fenix 9", 750),
     (r"f[eē]nix\s*8", "Garmin Fenix 8", 650),
     (r"f[eē]nix\s*7\s*(x\s*)?pro", "Garmin Fenix 7 Pro", 450),
     (r"f[eē]nix\s*7\s*x", "Garmin Fenix 7X", 400),
@@ -563,7 +576,7 @@ def _estimate_raw(title, text):
     if m:
         if m.group(1):
             model = m.group(1) + (" " + re.sub(r"\s+", " ", m.group(2).lower()) if m.group(2) else "")
-            model = model.replace("16 e", "16e")
+            model = model.replace("16 e", "16e").replace("17 e", "17e")
         else:
             model = "air"
         prices = IPHONE.get(model)
@@ -1414,6 +1427,22 @@ def quiet_seconds():
     return left if left > 0 else left + 86400
 
 
+HC_URL = (os.getenv("HC_URL") or "").strip("'\" ")   # healthchecks.io – ozve sa, keď bot stíchne
+_hc_last = [0.0]
+
+
+def heartbeat(force=False):
+    """Daj vonkajšej strážnej službe vedieť, že bot žije (najviac raz za 4 min).
+    Keď telefón bota zmrazí alebo zabije, pingy prestanú a služba ti pošle upozornenie."""
+    if not HC_URL or (not force and time.time() - _hc_last[0] < 240):
+        return
+    _hc_last[0] = time.time()
+    try:
+        requests.get(HC_URL, timeout=10)
+    except requests.RequestException:
+        pass                                   # bez internetu – služba to zistí sama
+
+
 def daily_summary():
     """Pred nočným kľudom pošle krátky prehľad dňa. Keď večer nepríde, bot nebeží – treba ho skontrolovať."""
     today = time.strftime("%d.%m.")
@@ -1429,8 +1458,10 @@ def loop(interval):
     """Nepretržitý režim pre server/VPS/starý mobil: prechádza Bazoš každých `interval` sekúnd."""
     print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
     last_cache_clear = time.time()
+    heartbeat(force=True)
     while True:
         try:
+            heartbeat()
             today = time.strftime("%d.%m.")
             if _day["date"] != today and not quiet_seconds():
                 _day.update(date=today, alerts=0, offline_min=0, sent=False)
@@ -1439,7 +1470,7 @@ def loop(interval):
             if q:
                 daily_summary()
                 print(f"{time.strftime('%d.%m. %H:%M')} Nočný kľud do {QUIET_TO}:00 – spím {q // 60} min")
-                time.sleep(min(q, 1800))              # po kúskoch, nech sa zobudí presne aj po zmene času
+                time.sleep(min(q, 600))               # po kúskoch (10 min) – aj v noci dáva vedieť, že žije
                 _catchup[0] = True                    # ráno dobehni nočné inzeráty
                 continue
             start = time.time()
@@ -1456,6 +1487,7 @@ def loop(interval):
                 print(f"{time.strftime('%d.%m. %H:%M')} Prestávka {wait // 60:.0f} min")
             end = time.time() + max(10, wait)
             while time.time() < end:                    # medzi behmi Bazoša kontroluj Vinted častejšie
+                heartbeat()
                 vinted_tick()
                 time.sleep(max(1, min(5, end - time.time())))
         except KeyboardInterrupt:
