@@ -56,6 +56,7 @@ SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné
 SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)   # Fold/Flip 8 tiež
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
 STATE_FILE = Path(__file__).with_name("seen.json")
+DROP_ALERTS = os.getenv("DROP_ALERTS", "0") == "1"   # 0 = zlacnené inzeráty neposielaj (nikto o ne nemal záujem)
 
 
 def load_state():
@@ -985,6 +986,8 @@ def process_cars(state):
             if prev is not None and it["price"] >= prev:
                 continue
             state[it["id"]] = it["price"]
+            if prev is not None and not DROP_ALERTS:
+                continue
             reg = region(it["loc"])
             if not reg or reg[3] == "kosice" or not (CAR_MIN_PRICE <= it["price"] <= CAR_MAX_PRICE):
                 continue
@@ -1240,6 +1243,8 @@ def process_vinted(state):
             if not price or (prev is not None and price >= prev):
                 continue
             state[key] = price
+            if prev is not None and not DROP_ALERTS:
+                continue
             title = x.get("title") or ""
             full = x.get("full", "")
             model_attr = re.search(r"Model:\s*([^,]+)", full)
@@ -1346,6 +1351,8 @@ def main():
             if prev is not None and it["price"] >= prev:
                 continue                      # už videné a nezlacnelo
             state[it["id"]] = it["price"]
+            if prev is not None and not DROP_ALERTS:
+                continue                      # zlacnený starý inzerát = nikto nemal záujem, neposielaj
             if first_run:
                 continue                      # úplne prvý beh: len si zapamätaj, nespamuj starými inzerátmi
             reg = region(it["loc"])
