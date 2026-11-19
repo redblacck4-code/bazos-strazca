@@ -25,9 +25,8 @@ SAMPLES = {
     "Samsung": ["Samsung Galaxy S24 Ultra 256GB", "Samsung Galaxy S23 128GB", "Galaxy Z Fold 5", "Galaxy S25 128GB", "Galaxy Z Flip 6"],
     "Hodinky / AirPods / iPad": ["Apple Watch Ultra 2", "Apple Watch Series 9 45mm", "AirPods Pro 2", "iPad Air M2", "Garmin Fenix 7"],
     "Konzoly": ["PS5 Slim s mechanikou", "PS5 Pro", "Xbox Series X 1TB", "Steam Deck OLED 512GB", "Nintendo Switch OLED", "Ovládač DualSense"],
-    "Drony DJI": ["DJI Mini 4 Pro", "DJI Air 3", "DJI Avata 2", "DJI Mavic 3 Classic", "DJI Neo"],
 }
-SHOULD_SKIP = ["Kryt na iPhone 15 Pro", "Hra na PS5 FIFA 25", "Xbox Series S 512GB", "Batéria DJI Mini 3", "Ovládač Xbox Series X"]
+SHOULD_SKIP = ["Kryt na iPhone 15 Pro", "Hra na PS5 FIFA 25", "Xbox Series S 512GB", "DJI Mini 4 Pro (drony vypnuté)", "Ovládač Xbox Series X"]
 miss = 0
 for cat, titles in SAMPLES.items():
     print(f"\n{cat}")

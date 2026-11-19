@@ -7,7 +7,7 @@ Spúšťa sa raz (jeden prechod) – opakovanie rieši cron / GitHub Actions.
 Premenné prostredia:
   TELEGRAM_TOKEN    – token bota od @BotFather
   TELEGRAM_CHAT_ID  – tvoje chat ID (napr. cez @userinfobot)
-  MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 80 €)
+  MIN_PROFIT        – minimálny odhadovaný zisk na upozornenie (default 100 €)
 """
 import html as _html, json, os, random, re, subprocess, sys, time
 from pathlib import Path
@@ -49,9 +49,9 @@ REGIONS = {
 }
 SECTIONS = ["mobil", "pc"]   # mobil.bazos.sk, pc.bazos.sk
 PAGES = 3                    # koľko strán (po 20) prejsť v každej sekcii (celé SK, každé 2–3 min stačí)
-MIN_PROFIT = int(os.getenv("MIN_PROFIT", "80"))
+MIN_PROFIT = int(os.getenv("MIN_PROFIT", "100"))
 MIN_PROFIT_PCT = float(os.getenv("MIN_PROFIT_PCT", "0.10"))   # drahé veci: aspoň 10 % z ceny (viazané peniaze, riziko)
-MIN_PROFIT_ABS = int(os.getenv("MIN_PROFIT_ABS", "50"))      # absolútne minimum – pod 50 € sa neoplatí ísť
+MIN_PROFIT_ABS = int(os.getenv("MIN_PROFIT_ABS", "100"))     # absolútne minimum – pod 100 € sa neoplatí ísť
 SLOW_EXTRA = int(os.getenv("SLOW_EXTRA", "40"))               # pomaly predajné modely: +40 € k zisku
 SLOW_RE = re.compile(r"z flip|z fold|imac|mac mini|epix|venu|instinct", re.I)   # Fold/Flip 8 tiež
 SELL_FACTOR = 0.93           # reálne predáš ~7 % pod bežnou inzerovanou cenou
@@ -278,7 +278,9 @@ BUNDLE = re.compile(r"\+|konzol|\bs\s+hr|\ba\s+hr|\bplus\b", re.I)
 # Dedikované hľadania, aby sa konzoly nestratili medzi ostatnými inzerátmi
 CONSOLE_SEARCHES = ["ps5", "playstation 5", "steam deck", "switch oled", "switch 2", "dualsense", "ovládač ps5", "xbox series x"]
 # Ďalšie cielené hľadania: (sekcia Bazoša, dotaz)
-EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac"), ("foto", "dji"), ("pc", "dji")]
+EXTRA_SEARCHES = [("mobil", "apple watch"), ("mobil", "garmin"), ("mobil", "galaxy s2"), ("pc", "macbook pro"), ("pc", "mac mini"), ("pc", "imac")]
+DRONES_ON = os.getenv("DRONES_ON", "0") == "1"           # drony DJI vypnuté
+GARMIN_MIN_PROFIT = int(os.getenv("GARMIN_MIN_PROFIT", "150"))   # Garmin len keď je fakt výhodný (predáva sa pomalšie)
 # Príslušenstvo – v NADPISE znamená, že to nie je samotné zariadenie
 ACCESSORY = re.compile(
     # nadpis ZAČÍNA príslušenstvom ("Batéria DJI Mini 3", "Stojan na Mac mini")
@@ -363,11 +365,13 @@ def console_extras(name, text):
 
 
 def required_profit(value, name=""):
-    """Lacné veci (ovládače) by 60 € nikdy nedosiahli – pre ne stačí ~30 % z ceny."""
-    if value < 250:                                   # lacné veci (hodinky, AirPods…) – aspoň 50 €
+    """Minimálny zisk: 100 €, pri drahých veciach aspoň 10 % z ceny; Garmin aspoň 150 €; pomaly predajné +40 €."""
+    if value < 250:
         need = max(MIN_PROFIT_ABS, min(MIN_PROFIT, round(value * 0.3)))
     else:
         need = max(MIN_PROFIT, round(value * MIN_PROFIT_PCT))
+    if name.startswith("Garmin"):
+        need = max(need, GARMIN_MIN_PROFIT)
     return need + (SLOW_EXTRA if SLOW_RE.search(name) else 0)
 
 
@@ -538,6 +542,8 @@ def market_prices():
 def estimate(title, text, raw=False):
     """Vráti (názov, bežná cena, poznámky) alebo None. Cenu prepíše trhová z ceny.json (ak je)."""
     r = _estimate_raw(title, text)
+    if r and r[0].startswith("DJI") and not DRONES_ON:
+        return None                                     # drony nesledujeme
     if r and not raw:
         mp = market_prices().get(r[0])
         if mp:
@@ -1205,7 +1211,7 @@ def _vinted_desc(url):
     return _vinted_detail(url)[0]
 
 
-VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "80"))    # na Vinted prísnejšie – kupuješ naslepo
+VINTED_MIN_PROFIT = int(os.getenv("VINTED_MIN_PROFIT", "100"))    # na Vinted prísnejšie – kupuješ naslepo
 VINTED_MAX_ALERTS = int(os.getenv("VINTED_MAX_ALERTS", "3"))     # max. počet tipov z jedného prechodu
 VINTED_MAX_RATIO = 0.75        # cena s poštovným najviac 75 % bežnej ceny
 VINTED_BAD = re.compile(

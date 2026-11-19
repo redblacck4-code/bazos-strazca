@@ -36,7 +36,6 @@ Q += [("mobil", q, 2) for q in ("apple watch ultra", "apple watch series", "appl
 Q += [("pc", q, 1) for q in ("ipad pro m", "ipad air m")]
 Q += [("pc", q, 2) for q in ("ps5", "playstation 5", "xbox series x", "steam deck", "nintendo switch oled",
                                "nintendo switch 2", "dualsense")]
-Q += [("foto", "dji", 2), ("pc", "dji", 1)]
 
 
 # Vadné / nekompletné kusy – do trhovej ceny sa nerátajú (SK/CZ)
