@@ -59,9 +59,10 @@ STATE_FILE = Path(__file__).with_name("seen.json")
 DROP_ALERTS = os.getenv("DROP_ALERTS", "0") == "1"   # 0 = zlacnené inzeráty neposielaj (nikto o ne nemal záujem)
 
 
-def load_state():
+def load_state(path=None):
     """Načíta videné inzeráty. Poškodený súbor (napr. vypnutý mobil počas zápisu) nezastaví bota."""
-    for f in (STATE_FILE, STATE_FILE.with_suffix(".bak")):
+    path = path or STATE_FILE
+    for f in (path, path.with_suffix(".bak")):
         try:
             return json.loads(f.read_text())
         except FileNotFoundError:
@@ -71,16 +72,20 @@ def load_state():
     return {}
 
 
-def save_state(state):
+def save_state(state, path=None):
     """Bezpečný zápis: najprv do dočasného súboru, potom výmena (súbor nikdy neostane rozbitý)."""
-    tmp = STATE_FILE.with_suffix(".tmp")
+    path = path or STATE_FILE
+    tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state))
-    if STATE_FILE.exists():
+    if path.exists():
         try:
-            os.replace(STATE_FILE, STATE_FILE.with_suffix(".bak"))
+            os.replace(path, path.with_suffix(".bak"))
         except OSError:
             pass
-    os.replace(tmp, STATE_FILE)
+    os.replace(tmp, path)
+
+
+VINTED_STATE = Path(__file__).with_name("vinted_seen.json")   # Vinted má vlastný súbor (beží vo vlastnom vlákne)
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
       "Accept-Language": "sk-SK,sk;q=0.9"}
@@ -1064,6 +1069,15 @@ VINTED_QUERIES = [
     ("ps 5", 450, 150),
 ]
 _vinted_session = requests.Session()
+_vb = {"n": 0}
+
+
+def _vinted_backoff():
+    """Pri zablokovaní najprv krátka pauza (5 min), pri opakovaní dlhšia – až 60 min."""
+    _vb["n"] += 1
+    mins = min(60, 5 * 2 ** (_vb["n"] - 1))
+    print(f"{time.strftime('%d.%m. %H:%M')} [!] Vinted brzdí – pauza {mins} min", file=sys.stderr)
+    return mins * 60
 _vinted_blocked_until = 0.0
 _vinted_ready = False
 
@@ -1095,8 +1109,8 @@ def _vinted_get(path):
             _vinted_ready = False
             continue
         if r.status_code in (403, 429, 503):
-            _vinted_blocked_until = time.time() + 3600
-            print(f"[!] Vinted brzdí (HTTP {r.status_code}) – pauza 60 min", file=sys.stderr)
+            _vinted_blocked_until = time.time() + _vinted_backoff()
+            print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
             return None
         print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
         return None
@@ -1117,17 +1131,18 @@ def _vinted_search_html(q, max_price, min_price=0):
     global _vinted_blocked_until
     if time.time() < _vinted_blocked_until:
         return None
-    time.sleep(0.8 + random.random() * 0.8)
+    time.sleep(0.3 + random.random() * 0.4)
     url = (f"{VINTED_BASE}/catalog?search_text={requests.utils.quote(q)}&order=newest_first&price_to={max_price}"
            + (f"&price_from={min_price}" if min_price else ""))
     r = _vinted_session.get(url, headers=UA, timeout=30)
     if r.status_code in (403, 429, 503):
-        _vinted_blocked_until = time.time() + 3600
-        print(f"[!] Vinted brzdí (HTTP {r.status_code}) – pauza 60 min", file=sys.stderr)
+        _vinted_blocked_until = time.time() + _vinted_backoff()
+        print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
         return None
     if r.status_code != 200:
         print(f"[!] Vinted HTTP {r.status_code}", file=sys.stderr)
         return None
+    _vb["n"] = 0
     items, seen = [], set()
     for tag in _A_RE.findall(r.text):
         h = re.search(r'href="([^"]*/items/(\d+)[^"]*)"', tag)
@@ -1162,7 +1177,7 @@ VINTED_MIN_REVIEWS = int(os.getenv("VINTED_MIN_REVIEWS", "1"))   # predajca bez 
 def _vinted_detail(url):
     """(popis, počet recenzií predajcu alebo None) z detailu inzerátu – iba pre kandidátov."""
     try:
-        time.sleep(2 + random.random())
+        time.sleep(0.4 + random.random() * 0.4)
         t = _vinted_session.get(url, headers=UA, timeout=20).text
     except Exception:
         return "", None
@@ -1300,7 +1315,7 @@ _last_targeted = 0.0
 _last_vinted = 0.0
 TARGETED_MIN = int(os.getenv("TARGETED_MIN", "10"))                       # cielené hľadania každých X min
 VINTED_MIN = int(os.getenv("VINTED_MIN", str(VINTED_EVERY * 2)))          # (staré nastavenie, nepoužíva sa)
-VINTED_SEC = int(os.getenv("VINTED_SEC", "30"))                            # Vinted každých X sekúnd
+VINTED_SEC = int(os.getenv("VINTED_SEC", "15"))                            # Vinted každých X sekúnd
 
 
 def main():
@@ -1400,7 +1415,7 @@ def main():
         _catchup[0] = False                           # dobehnuté
         print(f"{time.strftime('%d.%m. %H:%M')} Dobehnuté inzeráty po prestávke/výpadku")
     alerts += process_cars(state)
-    if VINTED_ON and time.time() - _last_vinted >= VINTED_SEC:
+    if VINTED_ON and not _vthread["on"] and time.time() - _last_vinted >= VINTED_SEC:
         _last_vinted = time.time()
         try:
             alerts += process_vinted(state)
@@ -1466,6 +1481,7 @@ def loop(interval):
     print(f"Strážca beží v slučke, interval {interval} s. Zastavíš Ctrl+C.")
     last_cache_clear = time.time()
     heartbeat(force=True)
+    start_vinted_thread()
     while True:
         try:
             heartbeat()
@@ -1535,10 +1551,45 @@ def auto_survey():
         print(f"[!] prieskum cien: {e}", file=sys.stderr)
 
 
+_vthread = {"on": False}
+
+
+def vinted_loop():
+    """Vinted vo vlastnom vlákne – beží stále, nečaká na Bazoš. Nový inzerát pošle do ~15 s."""
+    if not VINTED_STATE.exists():                    # prvé spustenie: prevezmi už videné Vinted inzeráty
+        old = {k: v for k, v in load_state().items() if k.startswith("v")}
+        save_state(old, VINTED_STATE)
+    while True:
+        try:
+            if quiet_seconds():
+                time.sleep(60)
+                continue
+            start = time.time()
+            state = load_state(VINTED_STATE)
+            n = process_vinted(state)
+            if len(state) > 20000:
+                state = dict(list(state.items())[-20000:])
+            save_state(state, VINTED_STATE)
+            if n:
+                _day["alerts"] += n
+                print(f"{time.strftime('%d.%m. %H:%M')} Vinted: upozornení {n}")
+            time.sleep(max(2, VINTED_SEC - (time.time() - start)))
+        except Exception as e:
+            print(f"{time.strftime('%d.%m. %H:%M')} [!] Vinted chyba: {e}", file=sys.stderr)
+            time.sleep(30)
+
+
+def start_vinted_thread():
+    if VINTED_ON and not _vthread["on"]:
+        import threading
+        threading.Thread(target=vinted_loop, daemon=True, name="vinted").start()
+        _vthread["on"] = True
+
+
 def vinted_tick():
     """Rýchla kontrola Vinted mimo hlavného behu (každých VINTED_SEC sekúnd)."""
     global _last_vinted
-    if not VINTED_ON or time.time() - _last_vinted < VINTED_SEC or quiet_seconds():
+    if not VINTED_ON or _vthread["on"] or time.time() - _last_vinted < VINTED_SEC or quiet_seconds():
         return
     _last_vinted = time.time()
     try:
