@@ -12,6 +12,12 @@ Premenné prostredia:
 import html as _html, json, os, random, re, subprocess, sys, time
 from pathlib import Path
 
+for _st in (sys.stdout, sys.stderr):         # log sa zapisuje hneď (inak sa drží v pamäti a pri reštarte stratí)
+    try:
+        _st.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
 import requests
 from bs4 import BeautifulSoup
 
