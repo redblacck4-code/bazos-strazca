@@ -133,6 +133,21 @@ except Exception:
     old = {}
 new = dict(old)
 lines, upd = [], []
+
+# Skutočné predajné ceny zo štatistického bota (cena inzerátu tesne pred predajom)
+SOLD_URL = os.getenv("SOLD_URL", "https://raw.githubusercontent.com/redblacck4-code/bazos-statistiky/main/data/predajne_ceny.json")
+sold, sold_note = {}, ""
+try:
+    _r = requests.get(SOLD_URL, timeout=20)
+    _s = _r.json() if _r.status_code == 200 else {}
+    if time.time() - _s.get("updated", 0) < 8 * 86400:
+        sold = _s.get("ceny", {})
+        sold_note = f"🏷 Skutočné predaje zo štatistík: {len(sold)} modelov"
+    else:
+        sold_note = "🏷 Skutočné predaje: dáta zo štatistík sú staré, použité len inzeráty"
+except Exception as e:
+    sold_note = f"🏷 Skutočné predaje: nedostupné ({e.__class__.__name__}), použité len inzeráty"
+print(sold_note)
 for name in sorted(prices, key=lambda n: (n.split()[0], n)):
     ps = sorted(prices[name])
     if len(ps) < MIN_N:
@@ -141,13 +156,19 @@ for name in sorted(prices, key=lambda n: (n.split()[0], n)):
     market = round(ps[k] / b.SELL_FACTOR / 5) * 5          # bot predáva ~7 % pod touto cenou -> predaj ≈ percentil
     market = max(market, round(0.8 * statistics.median(ps) / 5) * 5)   # pri málo kusoch jeden lacný (vadný) neťahá cenu dole
     base = values[name]                                    # predvolená cena v kóde
+    sp, stxt = sold.get(name), ""
+    if sp and sp.get("n", 0) >= 5:
+        sold_val = sp["cena"] * 0.97 / b.SELL_FACTOR       # ~3 % sa ešte zjedná; prepočet na "bežnú" cenu
+        w = min(0.7, sp["n"] / 20)                         # čím viac predaných kusov, tým väčšia váha (max 70 %)
+        market = (1 - w) * market + w * sold_val
+        stxt = f", predané za ~{sp['cena']} € ({sp['n']} ks)"
     val = int(max(0.6 * base, min(1.4 * base, market)))   # poistka proti nezmyslom
     val = round(val / 5) * 5
     prev = int(old.get(name, base))
     new[name] = val
     diff = (val - prev) / prev * 100
     mark = "🔺" if diff >= 5 else ("🔻" if diff <= -5 else "✅")
-    lines.append(f"{mark} {name}: {prev} → {val} €, reálny predaj ~{round(val * b.SELL_FACTOR / 5) * 5} € (medián inzerátov {round(statistics.median(ps) / 5) * 5} €, {len(ps)} ks)")
+    lines.append(f"{mark} {name}: {prev} → {val} €, reálny predaj ~{round(val * b.SELL_FACTOR / 5) * 5} € (medián inzerátov {round(statistics.median(ps) / 5) * 5} €, {len(ps)} ks{stxt})")
     if abs(diff) >= 5:
         upd.append(f"{name}: {prev} → {val} €")
 json.dump({"v": 2, "updated": time.time(), "percentil": PCT, "ceny": new}, open(jpath, "w", encoding="utf-8"),
@@ -182,7 +203,7 @@ print("\n" + gh_status)
 head = (f"📊 Prieskum cien Bazoš {time.strftime('%d.%m.%Y')} – {len(seen)} inzerátov, {len(lines)} modelov\n"
         f"Bot odteraz počíta s týmito cenami (reálny predaj ≈ {PCT}. percentil inzerátov). Nič netreba meniť.")
 out = "\n".join([head, ""] + lines + ["", "Zmeny o 5 % a viac:"] + (upd or ["žiadne"]))
-out += "\n\n🌐 Stránka Flip ceny: " + gh_status
+out += "\n\n" + sold_note + "\n🌐 Stránka Flip ceny: " + gh_status
 print("\n\n" + out)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ceny_report.txt"), "w", encoding="utf-8") as f:
     f.write(out + "\n")
