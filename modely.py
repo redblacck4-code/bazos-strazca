@@ -46,7 +46,7 @@ OTHER = [
     (r"macbook\s*pro.*\bm1\b", "MacBook Pro 13 M1", 580),
     # Galaxy S26 (február 2026; nové 1000 / 1250 / 1450 €)
     (r"galaxy\s*s26\s*ultra|\bs26\s*ultra", "Galaxy S26 Ultra", 850),
-    (r"\bs26\s*(\+|plus)", "Galaxy S26+", 650), (r"(galaxy\s*)?\bs26\b", "Galaxy S26", 560),
+    (r"\bs26\s*(\+|plus)", "Galaxy S26+", 650), (r"\bs26\s*fe\b", "Galaxy S26 FE", 520), (r"(galaxy\s*)?\bs26\b", "Galaxy S26", 560),
     (r"galaxy\s*s25\s*ultra|\bs25\s*ultra", "Galaxy S25 Ultra", 680),
     (r"galaxy\s*s24\s*ultra|\bs24\s*ultra", "Galaxy S24 Ultra", 600),
     (r"galaxy\s*s23\s*ultra|\bs23\s*ultra", "Galaxy S23 Ultra", 400),
