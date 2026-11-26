@@ -450,9 +450,9 @@ def interrupted():
 
 
 def few_new(items, state):
-    """True = na strane je už prevažne videné (okrem pár topovaných) -> ďalšie strany netreba."""
-    new = sum(1 for it in items if it["id"] not in state)
-    return new < len(items) - 5
+    """True = na strane nie je ani jeden nový inzerát -> ďalšie strany netreba.
+    (Predtým stačilo pár videných – topované inzeráty ale zaplnia prvú stranu a nové sa ocitnú na 2.–3. strane.)"""
+    return not any(it["id"] not in state for it in items)
 
 
 def parse_list(html, base):
@@ -1321,6 +1321,21 @@ def process_vinted(state):
     return min(len(cands), VINTED_MAX_ALERTS)
 
 
+# Cielené hľadania na striedačku – poistka, aby bot videl naozaj všetko (nielen zoznam najnovších)
+# (sekcia, dotaz, cena od)
+SEARCH_ROTATION = [("mobil", f"iphone {n}", 80) for n in range(12, 19)] + [
+    ("mobil", "iphone air", 200), ("mobil", "galaxy s23", 80), ("mobil", "galaxy s24", 80), ("mobil", "galaxy s25", 80),
+    ("mobil", "galaxy s26", 80), ("mobil", "galaxy z fold", 150), ("mobil", "galaxy z flip", 80),
+    ("mobil", "apple watch", 50), ("mobil", "garmin", 80),
+    ("pc", "macbook air", 150), ("pc", "macbook pro", 150), ("pc", "mac mini", 150), ("pc", "imac", 150),
+    ("pc", "ps5", 120), ("pc", "playstation 5", 120), ("pc", "xbox series x", 120), ("pc", "nintendo switch", 80),
+    ("pc", "steam deck", 120)]
+SEARCH_PER_CYCLE = int(os.getenv("SEARCH_PER_CYCLE", "4"))   # koľko hľadaní v jednom kole (~1 min) -> celé kolo ~6 min
+SEARCH_MAX_PAGES = 4                                         # hlbšie strany len keď sú na nich nové inzeráty
+OLD_ID_GAP = 30000           # inzerát starší ako ~20 h, ktorý bot nikdy nevidel (z hľadania) -> len zapamätať, neposielať
+STATE_MAX = 60000
+_search_i = 0
+
 # --------------------------------------------------------------------- main
 _cycle = 0
 _last_targeted = 0.0
@@ -1331,7 +1346,7 @@ VINTED_SEC = int(os.getenv("VINTED_SEC", "15"))                            # Vin
 
 
 def main():
-    global _cycle, _last_targeted, _last_vinted
+    global _cycle, _last_targeted, _last_vinted, _search_i
     _cycle += 1
     targeted = time.time() - _last_targeted >= TARGETED_MIN * 60
     if targeted:
@@ -1348,14 +1363,23 @@ def main():
     for sec in SECTIONS:
         for page in range(CATCHUP_PAGES if catchup else PAGES):
             off = f"{page * 20}/" if page else ""
-            pages.append((sec, f"?hledat=&{LOC}cenaod=50&cenado=", off))
+            pages.append((sec, f"?hledat=&{LOC}cenaod=50&cenado=", off, 0))
     for sec, q in (EXTRA_SEARCHES if targeted else []):
-        pages.append((sec, f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=50&cenado=", ""))
+        pages.append((sec, f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=50&cenado=", "", 0))
     for q in (CONSOLE_SEARCHES if targeted else []):
-        pages.append(("pc", f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=15&cenado=", ""))
+        pages.append(("pc", f"?hledat={requests.utils.quote(q)}&{LOC}cenaod=15&cenado=", "", 0))
+    # striedavé cielené hľadania (po dobehnutí noci/výpadku všetky naraz)
+    batch = SEARCH_ROTATION if catchup else [SEARCH_ROTATION[(_search_i + k) % len(SEARCH_ROTATION)]
+                                             for k in range(SEARCH_PER_CYCLE)]
+    if not catchup:
+        _search_i = (_search_i + SEARCH_PER_CYCLE) % len(SEARCH_ROTATION)
+    for sec, q, od in batch:
+        pages.append((sec, f"?hledat={requests.utils.quote(q)}&{LOC}cenaod={od}&cenado=", "", 1))
+    nums = [int(k) for k in state if k.isdigit()]
+    max_id = max(nums) if nums else 0
 
     done_secs = set()                 # sekcie, kde sme už narazili na videné inzeráty
-    for sec, query, off in pages:
+    for sec, query, off, depth in pages:
         if off and query.startswith("?hledat=&") and sec in done_secs:
             continue                      # hlbšie strany netreba – nové sú len na začiatku
         base = f"https://{sec}.bazos.sk"
@@ -1373,11 +1397,15 @@ def main():
                               "Napíš Claudovi, treba upraviť kód.", preview=False)
         if query.startswith("?hledat=&") and few_new(items, state):
             done_secs.add(sec)
+        if depth and len(items) >= 20 and not few_new(items, state) and depth < (3 if catchup else SEARCH_MAX_PAGES):
+            pages.append((sec, query, f"{depth * 20}/", depth + 1))   # nové aj na ďalšej strane hľadania – pokračuj
         for it in items:
             prev = state.get(it["id"])
             if prev is not None and it["price"] >= prev:
                 continue                      # už videné a nezlacnelo
             state[it["id"]] = it["price"]
+            if depth and prev is None and it["id"].isdigit() and int(it["id"]) < max_id - OLD_ID_GAP:
+                continue                      # starý inzerát z hľadania (napr. pri prvom spustení) – len zapamätaj
             if prev is not None and not DROP_ALERTS:
                 continue                      # zlacnený starý inzerát = nikto nemal záujem, neposielaj
             if first_run:
@@ -1433,9 +1461,9 @@ def main():
             alerts += process_vinted(state)
         except Exception as e:
             print(f"[!] Vinted chyba: {e}", file=sys.stderr)
-    # drž stav menší – nechaj posledných 15000 ID
-    if len(state) > 15000:
-        state = dict(list(state.items())[-15000:])
+    # drž stav menší – nechaj posledných STATE_MAX ID (hľadania vracajú aj staršie inzeráty)
+    if len(state) > STATE_MAX:
+        state = dict(list(state.items())[-STATE_MAX:])
     save_state(state)
     _day["alerts"] += alerts
     blocked = " · Bazoš brzdí, pauza" if time.time() < _blocked_until else ""
