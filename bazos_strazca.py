@@ -175,9 +175,9 @@ OTHER = [
     (r"z\s*flip\s*7|flip\s*7", "Galaxy Z Flip 7", 560),
     (r"z\s*flip\s*6|flip\s*6", "Galaxy Z Flip 6", 370),
     (r"z\s*flip\s*5|flip\s*5", "Galaxy Z Flip 5", 250),
-    (r"watch\s*ultra\s*4", "Apple Watch Ultra 4", 650),            # september 2026
-    (r"watch\s*ultra\s*3", "Apple Watch Ultra 3", 445),
-    (r"watch\s*ultra\s*2", "Apple Watch Ultra 2", 390),
+    (r"watch\s*ultra\s*4(?!\d)", "Apple Watch Ultra 4", 650),            # september 2026
+    (r"watch\s*ultra\s*3(?!\d)", "Apple Watch Ultra 3", 445),
+    (r"watch\s*ultra\s*2(?!\d)", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 265),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?12\b", "Apple Watch Series 12", 330),
     (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
