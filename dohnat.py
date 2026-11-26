@@ -2,11 +2,28 @@
 Prejde inzeráty, ktoré zachytil štatistický bot (posledné 4 dni), overí, či sú ešte na predaj,
 a výhodné kusy (zisk aspoň 100 €, rovnaké pravidlá ako strážca) pošle do Telegramu.
 Už poslané si pamätá v dohnane.json, takže ho môžeš spustiť aj viackrát."""
-import json, re, time
+import json, os, re, time
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
-import bazos_strazca as b
+
+
+def _load_env():
+    """Pri ručnom spustení si načíta Telegram token a chat ID zo štartovacieho skriptu bota."""
+    try:
+        for ln in open(os.path.expanduser("~/.termux/boot/strazca.sh"), encoding="utf-8"):
+            m = re.match(r"\s*export\s+([A-Z_]+)=(.*)$", ln.strip())
+            if m and not os.getenv(m.group(1)):
+                os.environ[m.group(1)] = m.group(2).strip().strip("'\"")
+    except OSError:
+        pass
+
+
+_load_env()
+import bazos_strazca as b  # noqa: E402  (až po načítaní nastavení)
+
+if not (os.getenv("TELEGRAM_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")):
+    raise SystemExit("Nenašiel som TELEGRAM_TOKEN / TELEGRAM_CHAT_ID v ~/.termux/boot/strazca.sh")
 
 URL = "https://raw.githubusercontent.com/redblacck4-code/bazos-statistiky/main/data/listings.json"
 DONE = Path(__file__).with_name("dohnane.json")
@@ -71,9 +88,12 @@ for i, r in cands:
     notes = b.short_notes(ev["notes"] + (["lokalita neznáma"] if not loc else []))
     msg = b.compact_alert("🔁", ev["name"], r["p"], ev["profit"], ev["value"], r["u"],
                           (b.short_loc(loc) if loc else "?") + tag, notes, None, i)
+    print(f"  → {ev['name']} {r['p']} € · zisk {ev['profit']} € · {b.short_loc(loc) if loc else '?'}")
     if b.send_telegram(msg, preview=r["u"]):
         sent += 1
         done.add(i)
+    else:
+        print("    [!] do Telegramu sa neposlalo")
     time.sleep(1)
     DONE.write_text(json.dumps(sorted(done)))
 
