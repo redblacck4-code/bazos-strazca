@@ -179,12 +179,12 @@ OTHER = [
     (r"watch\s*ultra\s*3(?!\d)", "Apple Watch Ultra 3", 445),
     (r"watch\s*ultra\s*2(?!\d)", "Apple Watch Ultra 2", 390),
     (r"apple\s*watch\s*ultra|watch\s*ultra\s*1", "Apple Watch Ultra", 265),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?12\b", "Apple Watch Series 12", 330),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?10\b", "Apple Watch Series 10", 250),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?9\b", "Apple Watch Series 9", 190),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 135),
-    (r"(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*se\b", "Apple Watch SE", 110),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?12\b", "Apple Watch Series 12", 330),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?11\b", "Apple Watch Series 11", 300),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?10\b", "Apple Watch Series 10", 250),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?9\b", "Apple Watch Series 9", 190),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*(series\s*)?8\b", "Apple Watch Series 8", 135),
+    (r"(?s)^(?!.*(galaxy|samsung|huawei|xiaomi|amazfit|garmin)).*watch\s*se\b", "Apple Watch SE", 110),
     # --- Garmin ---
     (r"f[eē]nix\s*9\s*pro", "Garmin Fenix 9 Pro", 900),           # august 2026
     (r"f[eē]nix\s*9", "Garmin Fenix 9", 750),
@@ -1073,13 +1073,22 @@ VINTED_SHIP = int(os.getenv("VINTED_SHIP", "8"))      # poštovné odhadom (SK/C
 VINTED_BASE = "https://www.vinted.sk"
 # (hľadanie, cena do, cena od) – široké hľadania: všetky iPhony naraz, cena od odfiltruje kryty a príslušenstvo,
 # takže každú minútu stačia 3 požiadavky a nový inzerát sa nájde hneď v najbližšom prechode
+# Na Vinted len telefóny, hodinky a konzoly; MacBooky iba od predajcov zo Slovenska (CZ/PL klávesnica sa tu nepredá)
 VINTED_QUERIES = [
     ("iphone", 1200, 150),
     ("macbook", 1500, 250),
+    ("samsung galaxy", 1200, 150),
+    ("apple watch", 700, 60),
+    ("garmin", 900, 80),
     ("playstation 5", 450, 150),
     ("ps5", 450, 150),             # veľa ľudí píše len "PS5" / "Ps 5"
     ("ps 5", 450, 150),
+    ("nintendo switch", 400, 100),
+    ("xbox series x", 400, 120),
+    ("steam deck", 600, 150),
 ]
+VINTED_SK_ONLY = re.compile(r"macbook", re.I)      # tieto len zo Slovenska
+_vdet = {"country": None}
 _vinted_session = requests.Session()
 _vb = {"n": 0}
 
@@ -1204,6 +1213,14 @@ def _vinted_detail(url):
         m = re.search(r'\\"description\\":\\"(.*?)\\"[,}]', t)
         if m:
             desc = m.group(1).replace("\\\\n", "\n")[:900]
+    cm = (re.search(r'country_(?:iso_)?code\\?"\s*:\s*\\?"([A-Z]{2})', t)
+          or re.search(r'"countryCode\\?"\s*:\s*\\?"([A-Z]{2})', t))
+    if cm:
+        _vdet["country"] = cm.group(1)
+    elif re.search(r'country_title(?:_local)?\\?"\s*:\s*\\?"(Slovensko|Slovakia)', t):
+        _vdet["country"] = "SK"
+    else:
+        _vdet["country"] = None
     fb = _FEEDBACK_RE.search(t)
     if fb:
         reviews = int(fb.group(1))
@@ -1245,6 +1262,16 @@ VINTED_BAD_STATE = re.compile(r"Stav:\s*(Uspokojivé|Uspokojivý|Satisfactory|Do
 VINTED_PER_PASS = int(os.getenv("VINTED_PER_PASS", "2"))   # koľko ostatných hľadaní na prechod (striedajú sa)
 VINTED_PRIORITY = re.compile(os.getenv("VINTED_PRIORITY", "."), re.I)   # "." = všetky hľadania pri každom prechode   # tieto sa hľadajú pri každom prechode
 _vinted_pos = 0
+
+
+def vinted_lang(t):
+    """Hrubý odhad jazyka popisu: SK / CZ / PL / None."""
+    t = t.lower()
+    sc = {"SK": len(re.findall(r"\b(predám|predam|batéria|klávesnica|stav|veľmi|použív|nabíjačk|funkčn[ýá])\w*", t)),
+          "CZ": len(re.findall(r"\b(prodám|prodam|baterie|klávesnice|velmi|používán|nabíječk|funkční|řádně)\w*", t)),
+          "PL": len(re.findall(r"\b(sprzedam|bateria|klawiatur|bardzo|stan|używan|ładowark|sprawn|jest)\w*", t))}
+    best = max(sc, key=sc.get)
+    return best if sc[best] >= 2 and sc[best] > sorted(sc.values())[-2] else None
 
 
 def process_vinted(state):
@@ -1294,6 +1321,12 @@ def process_vinted(state):
             desc, reviews = _vinted_detail(url)
             if reviews is not None and reviews < VINTED_MIN_REVIEWS:
                 continue                       # predajca bez recenzií – typický scam účet
+            country = _vdet["country"]
+            if VINTED_SK_ONLY.search(quick[0]):
+                lang = vinted_lang(f"{title} {desc}")
+                if (country and country != "SK") or lang in ("PL", "CZ") \
+                        or re.search(r"klawiatur|polsk|česk[áa]\s*kl[aá]vesnic|cz\s*kl[aá]vesnic|\b(us|uk|en)\s*(layout|kl[aá]vesnic)", desc or "", re.I):
+                    continue                   # MacBook mimo Slovenska / CZ, PL klávesnica – tu sa nepredá
             text = desc or title
             if neg_search(VINTED_BAD, text):
                 continue                       # na Vinted iba nepoškodené kusy (batéria je OK)
