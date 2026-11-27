@@ -77,7 +77,9 @@ for i, r in cands:
         continue                                     # východ SK / vylúčený okres
     travel, mode = (reg[1], reg[3]) if reg else (b.POST_COST, "posta")
     item = {"id": i, "title": r["t"], "snippet": "", "price": r["p"], "url": r["u"], "loc": loc}
-    ev = b.evaluate(item, text)
+    ev = b.evaluate(item, text, repair_ok=False)
+    if ev and ev.get("broken"):
+        ev = None                                    # rozbité kusy patria do kanála na opravy, nie sem
     if ev:
         ev["profit"] -= travel
     if not ev or ev["profit"] < b.required_profit(ev["value"], ev["name"]):

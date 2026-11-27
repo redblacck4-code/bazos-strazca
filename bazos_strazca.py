@@ -209,6 +209,40 @@ HARD_EXCLUDE = re.compile(
     r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
     r"face\s*id\s*(nefung|nejde|nefunk)|nefunguje\s*face|nezapne|nezapína|(základn\w*\s*)?dosk\w*\s*(nefunk|odišl|zl[aá]|vadn|chyb)|"
     r"pod\s*vodou|vo\s*vode|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic", re.I)
+# Pre kanál na opravy: vady, ktoré sa dajú opraviť (inak sa takýto inzerát zahodí cez HARD_EXCLUDE)
+ALWAYS_EXCLUDE = re.compile(
+    r"kúpim|kupim|vykúpim|výkup|icloud\s*(lock|zamk|blok)|zablokovan|na\s*diely|na\s*náhradné|"
+    r"nezapne|nezapína|(základn\w*\s*)?dosk\w*\s*(nefunk|odišl|zl[aá]|vadn|chyb)|"
+    r"pod\s*vodou|vo\s*vode|vytopen|navlhn|ohnut|zabanovan|\bban\b|prevodom\s*vopred|krabica\s*od|iba\s*krabic", re.I)
+FAULT_RX = re.compile(
+    r"(všetko|vsetko|vsetky|všetky)\s+(funguje\s+|funkčné\s+|ide\s+)?okrem|funguje\s+(všetko|vsetko)\s+okrem|"
+    r"face\s*id\s*(nefung|nejde|nefunk)|nefunguje\s*face|"
+    r"nefunguje\s*(kamer|fotoapar|nabíjan|nabijan|reproduk|mikrof|wi-?fi|bluetooth|sign[aá]l|vibr|tlačidl|true\s*tone)|"
+    r"(kamer|nabíjan|nabijan|reproduk|mikrof|tlačidl)\w*\s*(nefung|nejde|nefunk)", re.I)
+# iPhony, kde sa zadné sklo dá vymeniť len laserom (iPhone 14/15/16/17 bez Pro 14 už majú vyberateľné sklo)
+LASER_GLASS = re.compile(r"iPhone (8|X|XR|XS|SE|1[0-3]\b|14 Pro)", re.I)
+def samsung_repair(name, label, cost):
+    """Odhad opravy Samsungov (originálny diel + práca). Zadné sklo ide teplom, bez lasera."""
+    if not name.startswith("Galaxy"):
+        return cost
+    if label == "displej":
+        if re.search(r"Fold|Flip", name):
+            return None                                   # ohybný displej ~300–500 € a veľké riziko
+        if "Ultra" in name:
+            return 230
+        if re.search(r"\bFE\b", name):
+            return 120
+        return 160                                        # S23–S26, S+ (displej s rámom)
+    if label == "zadné sklo":
+        return 40
+    return cost
+
+
+REPAIR_FAULT_COST = 120          # Face ID / kamera / nabíjanie… – drahšie a riskantnejšie
+REPAIR_BAT_LIMIT = 84            # batéria pod touto hodnotou = kanál na opravy
+REPAIR_BAT_COST = 35
+REPAIR_MIN_PROFIT = int(os.getenv("REPAIR_MIN_PROFIT", "150"))
+REPAIR_ON = bool(os.getenv("TELEGRAM_TOKEN_OPRAVY") and os.getenv("TELEGRAM_CHAT_ID_OPRAVY"))
 # Príslušenstvo v NADPISE ("Kryt na iPhone 15", "Obal pre…") – v popise ("dám aj puzdro") nevadí
 TITLE_ACCESSORY = re.compile(r"^\W*(nov[ýéá]\s+|originál\w*\s+)?(obal|kryt|puzdr|púzdr|sklo|fólia|folia|nabíjač|nabijac|kábel|kabel|držiak|remienok)|"
                              r"\b(obal|kryt|puzdro|púzdro|sklo|fólia)\s+(na|pre|for)\b", re.I)
@@ -620,10 +654,14 @@ def _estimate_raw(title, text):
     return None
 
 
-def evaluate(item, text):
+def evaluate(item, text, repair_ok=None):
+    """repair_ok: povoliť opraviteľné vady (Face ID, kamera…) – pre kanál na opravy. None = podľa nastavenia."""
+    if repair_ok is None:
+        repair_ok = REPAIR_ON
     full = f"{item['title']} {text}"
-    if neg_search(HARD_EXCLUDE, full) or PHOTO_SCAM.search(full) or TITLE_PHOTO.search(item["title"]) \
-            or TITLE_ACCESSORY.search(item["title"]):
+    if PHOTO_SCAM.search(full) or TITLE_PHOTO.search(item["title"]) or TITLE_ACCESSORY.search(item["title"]):
+        return None
+    if neg_search(ALWAYS_EXCLUDE if repair_ok else HARD_EXCLUDE, full):
         return None
     est = estimate(item["title"], text)
     if not est:
@@ -633,13 +671,27 @@ def evaluate(item, text):
         return None
     if is_accessory_or_bundle(name, item["title"], item["price"], value):
         return None
-    repair = 0
+    repair, broken = 0, False
     for rx, cost, label in DAMAGE:
         if neg_search(rx, full):
+            if label == "zadné sklo" and LASER_GLASS.match(name):
+                return None                  # zadné sklo len laserom (iPhone 13 a starší, 14 Pro) – nerobíme
+            cost = samsung_repair(name, label, cost)
+            if cost is None:
+                return None                  # Fold/Flip displej – drahé a riskantné, nerobíme
             repair += cost
             notes.append(f"{label} (−{cost} €)")
+            broken = broken or label in ("displej", "zadné sklo")
+    if repair_ok and neg_search(FAULT_RX, full):
+        repair += REPAIR_FAULT_COST
+        notes.append(f"⚠️ vada – Face ID/kamera/nabíjanie… over (−{REPAIR_FAULT_COST} €)")
+        broken = True
     bats = [int(b) for b in BAT_RE.findall(full) if 50 <= int(b) <= 100]
-    if bats and bats[0] < 85:
+    if bats and bats[0] < REPAIR_BAT_LIMIT:
+        repair += REPAIR_BAT_COST
+        notes.append(f"batéria {bats[0]} % (−{REPAIR_BAT_COST} €)")
+        broken = True
+    elif bats and bats[0] < 85:
         repair += 30
         notes.append(f"batéria {bats[0]} % (−30 €)")
     elif bats:
@@ -650,7 +702,7 @@ def evaluate(item, text):
     if bonus:
         notes.append(btxt)
     profit = round(value * SELL_FACTOR + bonus - item["price"] - repair)
-    return {"name": name, "value": value, "repair": repair, "profit": profit, "notes": notes}
+    return {"name": name, "value": value, "repair": repair, "profit": profit, "notes": notes, "broken": broken}
 
 
 SIGNATURE = os.getenv("SELLER_NAME", "Andrej")
@@ -739,10 +791,12 @@ def top_banner(name, price, value):
     return f"🔥🔥 <b>TOP PONUKA – {pct} % pod trhom{fast}</b>\nBer hneď, dohodni stretnutie ešte dnes!\n"
 
 
-def send_telegram(msg, preview=True):
+def send_telegram(msg, preview=True, opravy=False):
     """preview: True/False, alebo URL inzerátu -> pod správou sa zobrazí jeho fotka.
+    opravy=True: pošle do samostatného bota na opravy (TELEGRAM_TOKEN_OPRAVY / TELEGRAM_CHAT_ID_OPRAVY).
     Vráti True, keď Telegram správu prijal. Pri chybe skúsi znova bez fotky a nakoniec ako obyčajný text."""
-    token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+    sfx = "_OPRAVY" if opravy else ""
+    token, chat = os.getenv("TELEGRAM_TOKEN" + sfx), os.getenv("TELEGRAM_CHAT_ID" + sfx)
     if not token or not chat:
         print(msg + "\n---")
         return True
@@ -1336,7 +1390,7 @@ def process_vinted(state):
             item = {"title": title, "price": round(total), "loc": "Vinted", "url": url, "snippet": ""}
             if too_cheap_console(quick[0], quick[1], total, text) or is_accessory_or_bundle(quick[0], title, total, quick[1]):
                 continue
-            ev = evaluate(item, text)
+            ev = evaluate(item, text, repair_ok=False)
             if not ev or ev["profit"] < max(VINTED_MIN_PROFIT, required_profit(ev["value"], ev["name"])) or any("GB neuvedené" in n for n in ev["notes"]):
                 continue
             if any(k in n for n in ev["notes"] for k in ("displej", "zadné sklo", "neoriginálny")):
@@ -1473,12 +1527,14 @@ def main():
                 ev["profit"] -= travel
                 if mode == "posta" and re.search(r"(iba|len|výhradne)\s+osobn|osobný\s+odber\s+(iba|len)", text, re.I):
                     ev["notes"].append("⚠️ iba osobný odber")
-            if not ev or ev["profit"] < required_profit(ev["value"], ev["name"]):
+            to_repair = bool(ev and ev.get("broken") and REPAIR_ON)
+            need = REPAIR_MIN_PROFIT if to_repair else (required_profit(ev["value"], ev["name"]) if ev else 0)
+            if not ev or ev["profit"] < need:
                 continue
             tag = {"posta": " 📦", "znami": " 🤝BA", "kosice": " 🤝KE"}.get(mode, "")
-            if send_telegram(compact_alert("💰", ev["name"], it["price"], ev["profit"], ev["value"], it["url"],
-                                           short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]),
-                             preview=it["url"]):
+            if send_telegram(compact_alert("🔧" if to_repair else "💰", ev["name"], it["price"], ev["profit"], ev["value"],
+                                           it["url"], short_loc(it["loc"]) + tag, short_notes(ev["notes"]), prev, it["id"]),
+                             preview=it["url"], opravy=to_repair):
                 alerts += 1
             else:
                 forget(state, it["id"], prev)          # neodišlo – pošle sa v ďalšom kole
