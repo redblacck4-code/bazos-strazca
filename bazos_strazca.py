@@ -588,7 +588,7 @@ def _estimate_raw(title, text):
     if c:
         return c[0], c[1], notes
     t = f"{title} {text}".lower()
-    m = MODEL_RE.search(t)
+    m = MODEL_RE.search(title.lower()) or MODEL_RE.search(t)   # model z nadpisu má prednosť pred popisom
     if not m and "iphone" in t:
         m = _IPH_FALLBACK.search(t)                # "Predám iPhone … Model: 15 Pro"
     if m:
@@ -613,9 +613,10 @@ def _estimate_raw(title, text):
         pretty = model.replace("pro max", "Pro Max").replace("pro", "Pro").replace("plus", "Plus").replace("air", "Air")
         name = f"iPhone {pretty} {str(gb) + ' GB' if gb < 1024 else '1 TB'}"
         return name, prices[gb], notes
-    for rx, name, value in OTHER:
-        if re.search(rx, t, re.I):
-            return name, value, notes
+    for src in (title.lower(), t):                   # najprv nadpis – popis často spomína iné modely
+        for rx, name, value in OTHER:                # ("vymením za Fold 8", "lepší ako S24"…)
+            if re.search(rx, src, re.I):
+                return name, value, notes
     return None
 
 
