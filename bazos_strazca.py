@@ -1220,13 +1220,19 @@ def _vinted_search_html(q, max_price, min_price=0):
         return None
     _vb["n"] = 0
     items, seen = [], set()
-    for tag in _A_RE.findall(r.text):
-        h = re.search(r'href="([^"]*/items/(\d+)[^"]*)"', tag)
-        t = re.search(r'title="([^"]+)"', tag)
-        if not h or not t or h.group(2) in seen:
+    page = r.text
+    links = list(re.finditer(r'href="([^"]*/items/(\d+)[^"]*)"', page))
+    for n, h in enumerate(links):
+        if h.group(2) in seen:
+            continue
+        # názov a cena: kedysi v title odkazu, od 11/2026 v title vnútri odkazu (a v skrytom span)
+        end = links[n + 1].start() if n + 1 < len(links) else h.end() + 4000
+        t = re.search(r'title="([^"]*€[^"]*)"', page[h.start():min(end, h.end() + 4000)])
+        if not t:
             continue
         title_attr = _html.unescape(t.group(1))
-        prices = re.findall(r"(\d+(?:[.,]\d+)?)\s?€", title_attr)
+        prices = [re.sub(r"[\s\u00a0\u202f]", "", x) for x in
+                  re.findall(r"(\d{1,3}(?:[\s\u00a0\u202f]\d{3})*(?:[.,]\d+)?)\s?€", title_attr)]
         if not prices:
             continue
         seen.add(h.group(2))
